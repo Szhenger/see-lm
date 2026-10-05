@@ -1,3 +1,3 @@
 # SeeLM
 
-This is my mathematics AND programming language model.
+This is my small language model.
