@@ -1,2 +1,3 @@
-# see-lm
-This is my small language model for mathematics and programming.
+# SeeLM
+
+This is my mathematics AND programming language model.
