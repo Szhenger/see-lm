@@ -1,0 +1,11 @@
+# Corpora (multi-GB) and generated samples
+data/
+*.partial
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Profiler output
+*.prof
