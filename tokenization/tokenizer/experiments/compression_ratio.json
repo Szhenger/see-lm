@@ -1,0 +1,256 @@
+{
+  "seed": 0,
+  "documents_per_corpus": 10,
+  "corpora": {
+    "tinystories": "data/TinyStoriesV2-GPT4-valid.txt",
+    "owt": "data/owt_valid.txt"
+  },
+  "tokenizers": {
+    "tinystories": {
+      "vocab_size": 10000,
+      "vocab": "tokenization/trainer/artifacts/tinystories_vocab.pkl",
+      "merges": "tokenization/trainer/artifacts/tinystories_merges.pkl"
+    },
+    "owt": {
+      "vocab_size": 32000,
+      "vocab": "tokenization/trainer/artifacts/owt_vocab.pkl",
+      "merges": "tokenization/trainer/artifacts/owt_merges.pkl"
+    }
+  },
+  "own_corpus": {
+    "tinystories": {
+      "bytes_per_token": 4.088,
+      "mean_of_document_ratios": 4.093,
+      "total_bytes": 6476,
+      "total_tokens": 1584,
+      "documents": [
+        {
+          "bytes": 704,
+          "tokens": 167,
+          "bytes_per_token": 4.216
+        },
+        {
+          "bytes": 777,
+          "tokens": 185,
+          "bytes_per_token": 4.2
+        },
+        {
+          "bytes": 509,
+          "tokens": 130,
+          "bytes_per_token": 3.915
+        },
+        {
+          "bytes": 724,
+          "tokens": 170,
+          "bytes_per_token": 4.259
+        },
+        {
+          "bytes": 512,
+          "tokens": 119,
+          "bytes_per_token": 4.303
+        },
+        {
+          "bytes": 600,
+          "tokens": 156,
+          "bytes_per_token": 3.846
+        },
+        {
+          "bytes": 581,
+          "tokens": 147,
+          "bytes_per_token": 3.952
+        },
+        {
+          "bytes": 841,
+          "tokens": 202,
+          "bytes_per_token": 4.163
+        },
+        {
+          "bytes": 631,
+          "tokens": 174,
+          "bytes_per_token": 3.626
+        },
+        {
+          "bytes": 597,
+          "tokens": 134,
+          "bytes_per_token": 4.455
+        }
+      ]
+    },
+    "owt": {
+      "bytes_per_token": 4.322,
+      "mean_of_document_ratios": 4.316,
+      "total_bytes": 53964,
+      "total_tokens": 12487,
+      "documents": [
+        {
+          "bytes": 12815,
+          "tokens": 2730,
+          "bytes_per_token": 4.694
+        },
+        {
+          "bytes": 2150,
+          "tokens": 513,
+          "bytes_per_token": 4.191
+        },
+        {
+          "bytes": 5499,
+          "tokens": 1210,
+          "bytes_per_token": 4.545
+        },
+        {
+          "bytes": 8175,
+          "tokens": 1891,
+          "bytes_per_token": 4.323
+        },
+        {
+          "bytes": 743,
+          "tokens": 176,
+          "bytes_per_token": 4.222
+        },
+        {
+          "bytes": 720,
+          "tokens": 176,
+          "bytes_per_token": 4.091
+        },
+        {
+          "bytes": 2916,
+          "tokens": 635,
+          "bytes_per_token": 4.592
+        },
+        {
+          "bytes": 3891,
+          "tokens": 882,
+          "bytes_per_token": 4.412
+        },
+        {
+          "bytes": 4835,
+          "tokens": 1160,
+          "bytes_per_token": 4.168
+        },
+        {
+          "bytes": 12220,
+          "tokens": 3114,
+          "bytes_per_token": 3.924
+        }
+      ]
+    }
+  },
+  "other_corpus": {
+    "tinystories_tokenizer_on_owt": {
+      "bytes_per_token": 3.079,
+      "mean_of_document_ratios": 3.225,
+      "total_bytes": 53964,
+      "total_tokens": 17524,
+      "documents": [
+        {
+          "bytes": 12815,
+          "tokens": 4026,
+          "bytes_per_token": 3.183
+        },
+        {
+          "bytes": 2150,
+          "tokens": 712,
+          "bytes_per_token": 3.02
+        },
+        {
+          "bytes": 5499,
+          "tokens": 1756,
+          "bytes_per_token": 3.132
+        },
+        {
+          "bytes": 8175,
+          "tokens": 2750,
+          "bytes_per_token": 2.973
+        },
+        {
+          "bytes": 743,
+          "tokens": 197,
+          "bytes_per_token": 3.772
+        },
+        {
+          "bytes": 720,
+          "tokens": 219,
+          "bytes_per_token": 3.288
+        },
+        {
+          "bytes": 2916,
+          "tokens": 830,
+          "bytes_per_token": 3.513
+        },
+        {
+          "bytes": 3891,
+          "tokens": 1080,
+          "bytes_per_token": 3.603
+        },
+        {
+          "bytes": 4835,
+          "tokens": 1657,
+          "bytes_per_token": 2.918
+        },
+        {
+          "bytes": 12220,
+          "tokens": 4297,
+          "bytes_per_token": 2.844
+        }
+      ]
+    },
+    "owt_tokenizer_on_tinystories": {
+      "bytes_per_token": 3.998,
+      "mean_of_document_ratios": 3.995,
+      "total_bytes": 6476,
+      "total_tokens": 1620,
+      "documents": [
+        {
+          "bytes": 704,
+          "tokens": 169,
+          "bytes_per_token": 4.166
+        },
+        {
+          "bytes": 777,
+          "tokens": 197,
+          "bytes_per_token": 3.944
+        },
+        {
+          "bytes": 509,
+          "tokens": 130,
+          "bytes_per_token": 3.915
+        },
+        {
+          "bytes": 724,
+          "tokens": 170,
+          "bytes_per_token": 4.259
+        },
+        {
+          "bytes": 512,
+          "tokens": 125,
+          "bytes_per_token": 4.096
+        },
+        {
+          "bytes": 600,
+          "tokens": 156,
+          "bytes_per_token": 3.846
+        },
+        {
+          "bytes": 581,
+          "tokens": 148,
+          "bytes_per_token": 3.926
+        },
+        {
+          "bytes": 841,
+          "tokens": 203,
+          "bytes_per_token": 4.143
+        },
+        {
+          "bytes": 631,
+          "tokens": 174,
+          "bytes_per_token": 3.626
+        },
+        {
+          "bytes": 597,
+          "tokens": 148,
+          "bytes_per_token": 4.034
+        }
+      ]
+    }
+  }
+}

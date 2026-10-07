@@ -58,20 +58,16 @@ import tempfile
 import time
 from pathlib import Path
 
+from tokenization.common import ARTIFACTS_DIR, DATA_DIR, END_OF_TEXT, non_negative_int, positive_int
+
 HERE = Path(__file__).resolve().parent
-
-PROJECT = HERE.parent.parent  # tokenization/trainer/ -> project root
-
-# Where the corpora live: the data/ folder at the project root. Set the
-# DATA_DIR environment variable (download_data.sh honors the same one) or pass
-# --data-dir if yours is somewhere else.
-DATA_DIR = Path(os.environ.get("DATA_DIR", PROJECT / "data"))
 
 # Short output names for the course corpora; anything else is named after its file.
 SHORT_NAMES = {"tinystoriesv2-gpt4-train": "tinystories", "owt_train": "owt"}
 
 # Where the trained vocabulary, merges and summary go. Change with --out-dir.
-OUT_DIR = HERE / "artifacts"
+# The data folder and this one are defined once, in tokenization/common.py.
+OUT_DIR = ARTIFACTS_DIR
 
 # Trained on when no corpus is given on the command line: the full TinyStories
 # training set, as named by the course's download command.
@@ -106,7 +102,7 @@ def main() -> None:
     parser.add_argument("--vocab-size", type=int, default=10_000)
     parser.add_argument("--impl", choices=implementations, default=default_impl, help="NAME uses NAME_bpe.py")
     parser.add_argument("--processes", type=positive_int, default=None, help="worker processes (default: all cores)")
-    parser.add_argument("--special", nargs="*", default=["<|endoftext|>"], help="special tokens")
+    parser.add_argument("--special", nargs="*", default=[END_OF_TEXT], help="special tokens")
     parser.add_argument(
         "--name",
         help="prefix of the output files (default: tinystories, owt, or the trained file's name); a sample run appends .firstNmb",
@@ -229,20 +225,6 @@ def short_name(corpus: Path) -> str:
     """Prefix for the output files: tinystories, owt, or the file's own name."""
     stem = corpus.stem.lower()
     return SHORT_NAMES.get(stem, stem)
-
-
-def non_negative_int(text: str) -> int:
-    value = int(text)
-    if value < 0:
-        raise argparse.ArgumentTypeError("must be 0 or more")
-    return value
-
-
-def positive_int(text: str) -> int:
-    value = int(text)
-    if value < 1:
-        raise argparse.ArgumentTypeError("must be 1 or more")
-    return value
 
 
 def find_corpus(arg: str, data_dir: Path) -> Path:
