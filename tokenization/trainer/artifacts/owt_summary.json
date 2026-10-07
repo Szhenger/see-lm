@@ -1,0 +1,20 @@
+{
+  "corpus": "owt_train.txt",
+  "corpus_mb": 11920.5,
+  "sample_mb": 0,
+  "implementation": "optimal_bpe",
+  "vocab_size_requested": 32000,
+  "special_tokens": [
+    "<|endoftext|>"
+  ],
+  "tokens": 32000,
+  "merges": 31743,
+  "processes": 10,
+  "profiled": false,
+  "seconds": 270.25,
+  "hours": 0.0751,
+  "peak_memory_mb_main": 8174,
+  "peak_memory_mb_largest_worker": 431,
+  "longest_token": "b'\\xc3\\x83\\xc3\\x82\\xc3\\x83\\xc3\\x82\\xc3\\x83\\xc3\\x82\\xc3\\x83\\xc3\\x82\\xc3\\x83\\xc3\\x82\\xc3\\x83\\xc3\\x82\\xc3\\x83\\xc3\\x82\\xc3\\x83\\xc3\\x82\\xc3\\x83\\xc3\\x82\\xc3\\x83\\xc3\\x82\\xc3\\x83\\xc3\\x82\\xc3\\x83\\xc3\\x82\\xc3\\x83\\xc3\\x82\\xc3\\x83\\xc3\\x82\\xc3\\x83\\xc3\\x82\\xc3\\x83\\xc3\\x82'",
+  "longest_token_bytes": 64
+}
