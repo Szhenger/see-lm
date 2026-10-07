@@ -84,10 +84,3 @@ def _merge(word: Word, pair: tuple[bytes, bytes]) -> Word:
             out.append(word[i])
             i += 1
     return tuple(out)
-
-
-if __name__ == "__main__":
-    HERE = Path(__file__).resolve().parent
-    vocab, merges = train_bpe(HERE/"corpus.txt", vocab_size=300, special_tokens=["<|endoftext|>"])
-    print(f"{len(vocab)} tokens, {len(merges)} merges")
-    print(merges[:10])

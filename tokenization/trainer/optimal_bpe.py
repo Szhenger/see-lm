@@ -82,9 +82,11 @@ def train_bpe(
 # --------------------------------------------------------------------------
 @lru_cache(maxsize=None)
 def special_pattern(special_tokens: tuple[str, ...]) -> re.Pattern[bytes]:
-    """A bytes pattern matching any special token. Longest first, so a token
+    """
+    A bytes pattern matching any special token. Longest first, so a token
     that contains another one wins the match. No capturing group, so split
-    drops the tokens and findall returns whole matches."""
+    drops the tokens and findall returns whole matches.
+    """
     ordered = sorted((t.encode("utf-8") for t in special_tokens), key=len, reverse=True)
     return re.compile(b"|".join(re.escape(t) for t in ordered))
 
@@ -197,7 +199,8 @@ _profiler = None  # one per worker process, created on first use
 
 
 def _count_chunk(task: tuple[str, int, int, tuple[str, ...]]) -> Counter[bytes]:
-    """Worker entry point: count the pre-tokens in one byte range of the file.
+    """
+    Worker entry point: count the pre-tokens in one byte range of the file.
 
     Must be a top-level function so worker processes can import it.
     """
@@ -207,7 +210,8 @@ def _count_chunk(task: tuple[str, int, int, tuple[str, ...]]) -> Counter[bytes]:
 
 
 def _profiled(function, *args):
-    """Run function under this process's profiler, then write the stats so far.
+    """
+    Run function under this process's profiler, then write the stats so far.
 
     The stats are rewritten after every task because a pool worker is never
     told which task is its last.
@@ -271,7 +275,8 @@ def parallel_pretokenize(
     num_processes: int | None = None,
     chunks_per_process: int = 4,
 ) -> Counter[bytes]:
-    """Count pre-tokens across worker processes. Keys are UTF-8 encoded pre-tokens.
+    """
+    Count pre-tokens across worker processes. Keys are UTF-8 encoded pre-tokens.
 
     The file is cut at special tokens, so no document is ever split between
     two chunks. With no special tokens there is no safe
@@ -419,7 +424,8 @@ def _merge_loop(
 
 
 class _Desc:
-    """Wraps a pair of bytes so that a min-heap pops the lexicographically greatest first.
+    """
+    Wraps a pair of bytes so that a min-heap pops the lexicographically greatest first.
 
     No __eq__ on purpose: tuple comparison then falls straight through to __lt__
     when counts tie, which is the common case.
