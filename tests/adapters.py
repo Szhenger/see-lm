@@ -12,8 +12,8 @@ from torch import Tensor
 import sys
 from pathlib import Path
 
-# Make tokenization/ importable from the tests.
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "tokenization"))
+# Make tokenization/trainer/ importable from the tests.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "tokenization" / "trainer"))
 
 from optimal_bpe import train_bpe  # noqa: E402  (must come after the path line)
 

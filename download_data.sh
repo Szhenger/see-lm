@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Download the corpora that tokenization/train_bpe.py expects into data/.
+# Download the corpora that tokenization/trainer/train_bpe.py expects into data/.
 #
 #   ./download_data.sh               # TinyStories and OpenWebText (about 7 GB down, 14 GB on disk)
 #   ./download_data.sh tinystories   # TinyStories only (2.3 GB)

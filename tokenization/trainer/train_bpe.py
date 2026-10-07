@@ -3,7 +3,7 @@ Train a BPE tokenizer on a corpus, save the result, and optionally profile the r
 
 By default the whole corpus is used, training runs on all cores, and the
 vocabulary, merges and a summary (time, memory, longest token) are written to
-tokenization/outputs/. With --profile, the run is also traced with cProfile:
+tokenization/trainer/artifacts/. With --profile, the run is also traced with cProfile:
 the main process directly, and each worker process through a hook in the
 trainer, so parallel pre-tokenization shows up too.
 
@@ -12,28 +12,30 @@ Layout this script expects:
     project/
         data/                <- corpora (DATA_DIR below)
         tokenization/
-            train_bpe.py   <- this file
-            naive_bpe.py     <- each *_bpe.py exposes train_bpe()
-            optimal_bpe.py
-            outputs/         <- created on first run
+            trainer/
+                train_bpe.py     <- this file
+                naive_bpe.py     <- each *_bpe.py exposes train_bpe()
+                optimal_bpe.py
+                artifacts/       <- created on first run
+            tokenizer/
 
 Examples (from the project root):
-    uv run python tokenization/train_bpe.py                                   # all of TinyStories, vocab 10,000 -> tinystories_*
-    uv run python tokenization/train_bpe.py owt_train.txt --vocab-size 32000  # all of OpenWebText -> owt_*
-    uv run python tokenization/train_bpe.py --sample-mb 100                   # only the first 100 MB, for quick feedback
-    uv run python tokenization/train_bpe.py --processes 4
-    uv run python tokenization/train_bpe.py --profile                         # cProfile tables for the main process and the workers
-    uv run python tokenization/train_bpe.py --profile --out train.prof        # then: uvx snakeviz train.prof (workers: train.prof.workers.prof)
-    uv run python tokenization/train_bpe.py --impl naive --sample-mb 20 --vocab-size 500
-    uv run python tokenization/train_bpe.py other_corpus.txt                  # a different file in data/
+    uv run python tokenization/trainer/train_bpe.py                                   # all of TinyStories, vocab 10,000 -> tinystories_*
+    uv run python tokenization/trainer/train_bpe.py owt_train.txt --vocab-size 32000  # all of OpenWebText -> owt_*
+    uv run python tokenization/trainer/train_bpe.py --sample-mb 100                   # only the first 100 MB, for quick feedback
+    uv run python tokenization/trainer/train_bpe.py --processes 4
+    uv run python tokenization/trainer/train_bpe.py --profile                         # cProfile tables for the main process and the workers
+    uv run python tokenization/trainer/train_bpe.py --profile --out train.prof        # then: uvx snakeviz train.prof (workers: train.prof.workers.prof)
+    uv run python tokenization/trainer/train_bpe.py --impl naive --sample-mb 20 --vocab-size 500
+    uv run python tokenization/trainer/train_bpe.py other_corpus.txt                  # a different file in data/
 
 A bare file name is looked up in the data folder. A path works too.
 --impl NAME uses NAME_bpe.py, so new trainers are picked up automatically.
 
-Files written to tokenization/outputs/ (change with --out-dir). NAME comes from
---name and defaults to tinystories or owt for the course corpora, otherwise to
-the trained file's name, lowercased. A sample keeps its .firstNmb suffix, so it
-gets its own name and never overwrites a full-corpus run:
+Files written to tokenization/trainer/artifacts/ (change with --out-dir). NAME is
+--name, or tinystories or owt for the course corpora, or else the trained file's
+name, lowercased. A sample run appends .firstNmb to NAME either way, so it never
+overwrites a full-corpus run:
     NAME_vocab.pkl      exact, for loading into the tokenizer later
     NAME_merges.pkl     exact, for loading into the tokenizer later
     NAME_vocab.txt      readable: one "ID<TAB>token" per line
@@ -42,6 +44,7 @@ gets its own name and never overwrites a full-corpus run:
 """
 
 import argparse
+import contextlib
 import cProfile
 import importlib
 import inspect
@@ -57,16 +60,18 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 
-# Where the corpora live: the data/ folder next to tokenization/. Set the
+PROJECT = HERE.parent.parent  # tokenization/trainer/ -> project root
+
+# Where the corpora live: the data/ folder at the project root. Set the
 # DATA_DIR environment variable (download_data.sh honors the same one) or pass
 # --data-dir if yours is somewhere else.
-DATA_DIR = Path(os.environ.get("DATA_DIR", HERE.parent / "data"))
+DATA_DIR = Path(os.environ.get("DATA_DIR", PROJECT / "data"))
 
 # Short output names for the course corpora; anything else is named after its file.
 SHORT_NAMES = {"tinystoriesv2-gpt4-train": "tinystories", "owt_train": "owt"}
 
 # Where the trained vocabulary, merges and summary go. Change with --out-dir.
-OUT_DIR = HERE / "outputs"
+OUT_DIR = HERE / "artifacts"
 
 # Trained on when no corpus is given on the command line: the full TinyStories
 # training set, as named by the course's download command.
@@ -74,10 +79,6 @@ DEFAULT_CORPUS = "TinyStoriesV2-GPT4-train.txt"
 
 # How much of the corpus to use by default, in megabytes. 0 means the whole file.
 DEFAULT_SAMPLE_MB = 0
-
-# Trainers that honor this variable (see optimal_bpe.py) make each pool worker
-# profile itself and write worker-<pid>.prof into the named folder.
-PROFILE_DIR_VAR = "BPE_PROFILE_DIR"
 
 COPY_BLOCK = 64 * 1024 * 1024  # bytes copied at a time when writing a sample
 BOUNDARY_WINDOW = 16 * 1024 * 1024  # how far back to look for a document boundary
@@ -96,7 +97,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--sample-mb",
-        type=int,
+        type=non_negative_int,
         default=DEFAULT_SAMPLE_MB,
         help="use only the first N megabytes, saved once as a sample file next to the corpus; "
         f"0 means the whole file (default: {DEFAULT_SAMPLE_MB})",
@@ -104,14 +105,12 @@ def main() -> None:
     parser.add_argument("--data-dir", type=Path, default=DATA_DIR, help=f"folder holding the corpora (default: {DATA_DIR})")
     parser.add_argument("--vocab-size", type=int, default=10_000)
     parser.add_argument("--impl", choices=implementations, default=default_impl, help="NAME uses NAME_bpe.py")
-    parser.add_argument(
-        "--processes",
-        type=int,
-        default=None,
-        help="worker processes (default: all cores)",
-    )
+    parser.add_argument("--processes", type=positive_int, default=None, help="worker processes (default: all cores)")
     parser.add_argument("--special", nargs="*", default=["<|endoftext|>"], help="special tokens")
-    parser.add_argument("--name", help="prefix of the output files (default: tinystories, owt, or the trained file's name)")
+    parser.add_argument(
+        "--name",
+        help="prefix of the output files (default: tinystories, owt, or the trained file's name); a sample run appends .firstNmb",
+    )
     parser.add_argument("--out-dir", type=Path, default=OUT_DIR, help=f"folder for the output files (default: {OUT_DIR})")
     parser.add_argument("--no-save", action="store_true", help="do not write the vocabulary, merges or summary")
     parser.add_argument("--profile", action="store_true", help="trace the run with cProfile and print the top functions")
@@ -125,11 +124,17 @@ def main() -> None:
     if args.out:
         args.profile = True
 
-    corpus = find_corpus(args.corpus, args.data_dir)
-    if args.sample_mb:
-        corpus = make_sample(corpus, args.sample_mb, args.special)
-    train_bpe = load_trainer(args.impl)
-    name = args.name or default_name(corpus)
+    whole = find_corpus(args.corpus, args.data_dir)
+    corpus = make_sample(whole, args.sample_mb, args.special) if args.sample_mb else whole
+    sample_mb = args.sample_mb if corpus != whole else 0  # 0: the whole file was used
+    name = args.name or short_name(whole)
+    if sample_mb:
+        name += f".first{sample_mb}mb"  # a sample never overwrites a full-corpus run
+    trainer = load_trainer(args.impl)
+    train_bpe = trainer.train_bpe
+    # Trainers that define this name make each pool worker profile itself and
+    # write worker-<pid>.prof into the folder the variable names.
+    profile_var = getattr(trainer, "PROFILE_DIR_VAR", None)
 
     # Pass num_processes only to trainers that accept it.
     kwargs = {}
@@ -147,9 +152,13 @@ def main() -> None:
         print("note: large corpus on one process, expect a long run; a smaller --sample-mb gives faster feedback")
 
     profiler = cProfile.Profile() if args.profile else None
-    with tempfile.TemporaryDirectory(prefix="bpe-profile-") as profile_dir:
-        if profiler and processes > 1:
-            os.environ[PROFILE_DIR_VAR] = profile_dir  # inherited by the spawned workers
+    profile_workers = bool(profiler and processes > 1 and profile_var)
+    if profile_var:
+        os.environ.pop(profile_var, None)  # a value left in the shell must not profile a plain run
+    worker_folder = tempfile.TemporaryDirectory(prefix="bpe-profile-") if profile_workers else contextlib.nullcontext()
+    with worker_folder as profile_dir:
+        if profile_workers:
+            os.environ[profile_var] = profile_dir  # inherited by the spawned workers
         start = time.perf_counter()
         if profiler:
             profiler.enable()
@@ -157,10 +166,13 @@ def main() -> None:
         if profiler:
             profiler.disable()
         elapsed = time.perf_counter() - start
-        os.environ.pop(PROFILE_DIR_VAR, None)
-        worker_stats, worker_count = load_worker_stats(Path(profile_dir))  # before the folder is removed
+        if profile_workers:
+            os.environ.pop(profile_var, None)
+            worker_stats, worker_count = load_worker_stats(Path(profile_dir))  # before the folder is removed
+        else:
+            worker_stats, worker_count = None, 0
 
-    summary = summarize(vocab, merges, corpus, args, processes, elapsed)
+    summary = summarize(vocab, merges, corpus, args, processes, sample_mb, elapsed)
     note = " (includes profiler overhead)" if args.profile else ""
     print(f"{summary['tokens']} tokens, {summary['merges']} merges")
     print(f"time: {elapsed:.1f} s = {elapsed / 60:.2f} min = {elapsed / 3600:.4f} h{note}")
@@ -180,7 +192,7 @@ def main() -> None:
                 workers_out = f"{args.out}.workers.prof"
                 worker_stats.dump_stats(workers_out)
                 print(f"worker profile saved to {workers_out}")
-        if processes > 1 and not worker_stats:
+        if profile_workers and not worker_stats:
             print("\nnote: no worker profiles came back; if the trainer used its pool, pre-tokenization is missing below")
         print(f"\n=== main process{' (merge loop; pre-tokenization ran in the workers)' if worker_stats else ''}")
         pstats.Stats(profiler).strip_dirs().sort_stats(args.sort).print_stats(args.top)
@@ -204,18 +216,31 @@ def available_implementations() -> list[str]:
 
 
 def load_trainer(name: str):
-    """Return train_bpe from NAME_bpe.py."""
+    """Return the module NAME_bpe.py, checked to have a train_bpe() function."""
     module = importlib.import_module(f"{name}_bpe")
     if not hasattr(module, "train_bpe"):
         sys.exit(f"{name}_bpe.py has no train_bpe() function")
-    return module.train_bpe
+    return module
 
 
-def default_name(corpus: Path) -> str:
-    """Prefix for the output files: tinystories, owt, or the file's own name, plus any sample suffix."""
-    stem = corpus.stem.lower()  # e.g. tinystoriesv2-gpt4-train.first100mb
-    base, dot, sample = stem.partition(".")
-    return SHORT_NAMES.get(base, base) + dot + sample
+def short_name(corpus: Path) -> str:
+    """Prefix for the output files: tinystories, owt, or the file's own name."""
+    stem = corpus.stem.lower()
+    return SHORT_NAMES.get(stem, stem)
+
+
+def non_negative_int(text: str) -> int:
+    value = int(text)
+    if value < 0:
+        raise argparse.ArgumentTypeError("must be 0 or more")
+    return value
+
+
+def positive_int(text: str) -> int:
+    value = int(text)
+    if value < 1:
+        raise argparse.ArgumentTypeError("must be 1 or more")
+    return value
 
 
 def find_corpus(arg: str, data_dir: Path) -> Path:
@@ -321,6 +346,7 @@ def summarize(
     corpus: Path,
     args: argparse.Namespace,
     processes: int,
+    sample_mb: int,
     elapsed: float,
 ) -> dict:
     """The numbers the assignment asks about: time, memory, and the longest token."""
@@ -333,7 +359,7 @@ def summarize(
     return {
         "corpus": corpus.name,
         "corpus_mb": round(corpus.stat().st_size / 1e6, 1),
-        "sample_mb": args.sample_mb,  # 0 means the whole file
+        "sample_mb": sample_mb,  # 0 means the whole file was used
         "implementation": f"{args.impl}_bpe",
         "vocab_size_requested": args.vocab_size,
         "special_tokens": args.special,

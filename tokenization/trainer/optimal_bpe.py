@@ -25,7 +25,7 @@ import os
 import regex as re
 from collections import Counter, defaultdict
 from functools import lru_cache
-from multiprocessing import Pool
+from multiprocessing import get_context
 from typing import BinaryIO
 
 
@@ -160,9 +160,9 @@ def _profiled(function, *args):
     The stats are rewritten after every task because a pool worker is never
     told which task is its last.
 
-    The worker must start without an active profiler, which the spawn and
-    forkserver start methods guarantee. A forked worker inherits its parent's
-    profiler and cannot enable a second one; it then just counts, unprofiled.
+    The pool spawns its workers, so each starts without an active profiler.
+    Should a worker ever inherit one (a forked child of a profiled parent), it
+    cannot enable a second one and just counts, unprofiled.
     """
     global _profiler
     import cProfile
@@ -248,7 +248,10 @@ def parallel_pretokenize(
         for task in tasks:
             total.update(_count_pretokens(task))
     else:
-        with Pool(num_processes) as pool:
+        # Spawned workers are direct children of this process, so their peak
+        # memory shows up in its RUSAGE_CHILDREN on every platform. (Linux
+        # would otherwise use a forkserver, whose children are not ours.)
+        with get_context("spawn").Pool(num_processes) as pool:
             for counts in pool.imap_unordered(_count_chunk, tasks):
                 total.update(counts)
     return total
