@@ -22,32 +22,40 @@ DATA_DIR="${DATA_DIR:-$HERE/data}"
 TINYSTORIES=https://huggingface.co/datasets/roneneldan/TinyStories/resolve/main
 OWT=https://huggingface.co/datasets/stanford-cs336/owt-sample/resolve/main
 
-# unpack ARCHIVE UNPACKED: gunzip ARCHIVE into UNPACKED. A corrupt archive is
-# removed along with any partial output, so the next run downloads it again.
+# unpack ARCHIVE UNPACKED: gunzip ARCHIVE into UNPACKED and remove the archive.
+# The output is written under a temporary name first, so UNPACKED only ever
+# appears complete. On failure a corrupt archive is removed, so the next run
+# downloads it again; an intact one (say the disk filled up) is kept.
 unpack() {
     local archive=$1 unpacked=$2
     echo "unzip $(basename "$archive")"
-    rm -f "$unpacked"
-    if ! gunzip "$archive"; then
-        rm -f "$archive" "$unpacked"
-        echo "unpacking failed; removed $(basename "$archive"), rerun to download it again" >&2
+    if ! gunzip -c "$archive" > "$unpacked.partial"; then
+        rm -f "$unpacked.partial"
+        if gzip -t "$archive" 2>/dev/null; then
+            echo "unpacking failed but the archive is intact; kept $(basename "$archive")" >&2
+        else
+            rm -f "$archive"
+            echo "corrupt archive; removed $(basename "$archive"), rerun to download it again" >&2
+        fi
         exit 1
     fi
+    mv "$unpacked.partial" "$unpacked"
+    rm -f "$archive"
 }
 
-# fetch URL NAME: download URL to data/NAME unless data/NAME already exists.
-# A .gz NAME is unpacked afterwards, and skipped if the unpacked file exists.
+# fetch URL NAME: download URL to data/NAME unless the final file already exists.
+# A .gz NAME is unpacked afterwards.
 fetch() {
     local url=$1 name=$2
     local target="$DATA_DIR/$name" final="$DATA_DIR/${name%.gz}"
+    if [[ -s "$final" ]]; then
+        echo "have  $final"
+        return
+    fi
     if [[ "$name" == *.gz && -f "$target" ]]; then
         # A finished download whose unpacking was interrupted: unpack it again.
         unpack "$target" "$final"
         echo "done  $final"
-        return
-    fi
-    if [[ -s "$final" ]]; then
-        echo "have  $final"
         return
     fi
     echo "get   $name"
