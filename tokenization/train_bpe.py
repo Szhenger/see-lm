@@ -3,7 +3,9 @@ Train a BPE tokenizer on a corpus, save the result, and optionally profile the r
 
 By default the whole corpus is used, training runs on all cores, and the
 vocabulary, merges and a summary (time, memory, longest token) are written to
-tokenization/outputs/. With --profile, the run is also traced with cProfile.
+tokenization/outputs/. With --profile, the run is also traced with cProfile:
+the main process directly, and each worker process through a hook in the
+trainer, so parallel pre-tokenization shows up too.
 
 Layout this script expects:
 
@@ -21,8 +23,8 @@ Examples (from the project root):
     uv run python tokenization/train_bpe.py owt_train.txt --vocab-size 32000  # all of OpenWebText
     uv run python tokenization/train_bpe.py --sample-mb 100                   # only the first 100 MB, for quick feedback
     uv run python tokenization/train_bpe.py --processes 4
-    uv run python tokenization/train_bpe.py --profile                         # cProfile; one process, so pre-tokenization is visible
-    uv run python tokenization/train_bpe.py --profile --out train.prof        # then: uvx snakeviz train.prof
+    uv run python tokenization/train_bpe.py --profile                         # cProfile tables for the main process and the workers
+    uv run python tokenization/train_bpe.py --profile --out train.prof        # then: uvx snakeviz train.prof (workers: train.prof.workers.prof)
     uv run python tokenization/train_bpe.py --impl naive --sample-mb 20 --vocab-size 500
     uv run python tokenization/train_bpe.py other_corpus.txt                  # a different file in data/
 
@@ -49,6 +51,7 @@ import pickle
 import pstats
 import resource
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -67,6 +70,10 @@ DEFAULT_CORPUS = "TinyStoriesV2-GPT4-train.txt"
 
 # How much of the corpus to use by default, in megabytes. 0 means the whole file.
 DEFAULT_SAMPLE_MB = 0
+
+# Trainers that honor this variable (see optimal_bpe.py) make each pool worker
+# profile itself and write worker-<pid>.prof into the named folder.
+PROFILE_DIR_VAR = "BPE_PROFILE_DIR"
 
 COPY_BLOCK = 64 * 1024 * 1024  # bytes copied at a time when writing a sample
 BOUNDARY_WINDOW = 16 * 1024 * 1024  # how far back to look for a document boundary
@@ -97,7 +104,7 @@ def main() -> None:
         "--processes",
         type=int,
         default=None,
-        help="worker processes (default: all cores; 1 with --profile, so the profiler can see pre-tokenization)",
+        help="worker processes (default: all cores)",
     )
     parser.add_argument("--special", nargs="*", default=["<|endoftext|>"], help="special tokens")
     parser.add_argument("--name", help="prefix of the output files (default: the trained file's name, lowercased)")
@@ -106,7 +113,10 @@ def main() -> None:
     parser.add_argument("--profile", action="store_true", help="trace the run with cProfile and print the top functions")
     parser.add_argument("--sort", choices=["tottime", "cumtime", "ncalls"], default="tottime", help="order of the profile table")
     parser.add_argument("--top", type=int, default=15, help="number of profile rows to print")
-    parser.add_argument("--out", help="save the raw profile to this file (implies --profile)")
+    parser.add_argument(
+        "--out",
+        help="save the raw profile to this file (implies --profile); with workers, their combined profile goes to FILE.workers.prof",
+    )
     args = parser.parse_args()
     if args.out:
         args.profile = True
@@ -120,7 +130,7 @@ def main() -> None:
     # Pass num_processes only to trainers that accept it.
     kwargs = {}
     if "num_processes" in inspect.signature(train_bpe).parameters:
-        processes = args.processes or (1 if args.profile else os.cpu_count() or 1)
+        processes = args.processes or os.cpu_count() or 1
         kwargs["num_processes"] = processes
         processes_note = f"{processes} process(es)"
     else:
@@ -129,17 +139,22 @@ def main() -> None:
 
     size_mb = corpus.stat().st_size / 1e6
     print(f"{args.impl}_bpe.train_bpe | {corpus.name} ({size_mb:.1f} MB) | vocab {args.vocab_size} | special {args.special} | {processes_note}")
-    if size_mb > 1000 and (args.profile or processes == 1):
+    if size_mb > 1000 and processes == 1:
         print("note: large corpus on one process, expect a long run; a smaller --sample-mb gives faster feedback")
 
     profiler = cProfile.Profile() if args.profile else None
-    start = time.perf_counter()
-    if profiler:
-        profiler.enable()
-    vocab, merges = train_bpe(corpus, args.vocab_size, args.special, **kwargs)
-    if profiler:
-        profiler.disable()
-    elapsed = time.perf_counter() - start
+    with tempfile.TemporaryDirectory(prefix="bpe-profile-") as profile_dir:
+        if profiler and processes > 1:
+            os.environ[PROFILE_DIR_VAR] = profile_dir  # inherited by the spawned workers
+        start = time.perf_counter()
+        if profiler:
+            profiler.enable()
+        vocab, merges = train_bpe(corpus, args.vocab_size, args.special, **kwargs)
+        if profiler:
+            profiler.disable()
+        elapsed = time.perf_counter() - start
+        os.environ.pop(PROFILE_DIR_VAR, None)
+        worker_stats, worker_count = load_worker_stats(Path(profile_dir))  # before the folder is removed
 
     summary = summarize(vocab, merges, corpus, args, processes, elapsed)
     note = " (includes profiler overhead)" if args.profile else ""
@@ -157,8 +172,18 @@ def main() -> None:
         if args.out:
             profiler.dump_stats(args.out)
             print(f"profile saved to {args.out}")
-        print()
+            if worker_stats:
+                workers_out = f"{args.out}.workers.prof"
+                worker_stats.dump_stats(workers_out)
+                print(f"worker profile saved to {workers_out}")
+        if processes > 1 and not worker_stats:
+            print("\nnote: no worker profiles came back, so pre-tokenization is missing from the table below")
+        print(f"\n=== main process{' (merge loop; pre-tokenization ran in the workers)' if worker_stats else ''}")
         pstats.Stats(profiler).strip_dirs().sort_stats(args.sort).print_stats(args.top)
+        if worker_stats:
+            # cProfile measures each worker's wall time, not CPU time.
+            print(f"=== {worker_count} worker process(es), combined: each worker's own seconds, summed, so more than the wall time")
+            worker_stats.strip_dirs().sort_stats(args.sort).print_stats(args.top)
 
 
 def available_implementations() -> list[str]:
@@ -246,6 +271,29 @@ def _incomplete_utf8_tail(data: bytes) -> int:
         needed = 2 if byte >> 5 == 0b110 else 3 if byte >> 4 == 0b1110 else 4
         return back if back < needed else 0
     return 0
+
+
+def load_worker_stats(profile_dir: Path) -> tuple[pstats.Stats | None, int]:
+    """Combine the worker-<pid>.prof files the trainer's workers wrote, and count them.
+
+    A file that cannot be read is reported and skipped: the profile is a side
+    channel, and the trained vocabulary must still be saved after this.
+    """
+    stats = None
+    loaded = 0
+    for file in sorted(profile_dir.glob("worker-*.prof")):
+        try:
+            if stats is None:
+                stats = pstats.Stats(str(file))
+            else:
+                stats.add(str(file))
+        except Exception as error:  # noqa: BLE001 - anything wrong with the file
+            print(f"note: skipped unreadable worker profile {file.name}: {error}")
+            continue
+        loaded += 1
+    if stats is not None:
+        stats.files = []  # otherwise print_stats lists these temporary paths as a header
+    return stats, loaded
 
 
 def peak_memory_mb() -> tuple[float, float]:

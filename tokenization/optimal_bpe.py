@@ -137,11 +137,57 @@ def _special_pattern(special_tokens: tuple[str, ...]) -> re.Pattern[bytes]:
     return re.compile(b"|".join(re.escape(t) for t in ordered))
 
 
+# Set this environment variable to a folder and every pool worker traces its
+# counting with cProfile, writing worker-<pid>.prof there. train_bpe.py
+# --profile uses it. Nothing happens unless the variable is set.
+PROFILE_DIR_VAR = "BPE_PROFILE_DIR"
+_profiler = None  # one per worker process, created on first use
+
+
 def _count_chunk(task: tuple[str, int, int, tuple[str, ...]]) -> Counter[bytes]:
-    """Worker: count the pre-tokens in one byte range of the file.
+    """Worker entry point: count the pre-tokens in one byte range of the file.
 
     Must be a top-level function so worker processes can import it.
     """
+    if os.environ.get(PROFILE_DIR_VAR):
+        return _profiled(_count_pretokens, task)
+    return _count_pretokens(task)
+
+
+def _profiled(function, *args):
+    """Run function under this process's profiler, then write the stats so far.
+
+    The stats are rewritten after every task because a pool worker is never
+    told which task is its last.
+
+    The worker must start without an active profiler, which the spawn and
+    forkserver start methods guarantee. A forked worker inherits its parent's
+    profiler and cannot enable a second one; it then just counts, unprofiled.
+    """
+    global _profiler
+    import cProfile
+
+    if _profiler is False:
+        return function(*args)
+    if _profiler is None:
+        _profiler = cProfile.Profile()
+    try:
+        _profiler.enable()
+    except ValueError:  # another profiler is already active in this process
+        _profiler = False
+        return function(*args)
+    try:
+        return function(*args)
+    finally:
+        _profiler.disable()
+        try:
+            _profiler.dump_stats(os.path.join(os.environ[PROFILE_DIR_VAR], f"worker-{os.getpid()}.prof"))
+        except OSError:
+            pass  # the profile is a side channel; the count still goes back to the parent
+
+
+def _count_pretokens(task: tuple[str, int, int, tuple[str, ...]]) -> Counter[bytes]:
+    """Count the pre-tokens in one byte range of the file."""
     path, start, end, special_tokens = task
 
     with open(path, "rb") as f:
@@ -197,8 +243,10 @@ def parallel_pretokenize(
 
     total: Counter[bytes] = Counter()
     if num_processes == 1 or len(tasks) <= 1:
+        # Straight to the counting: this process may already be under a
+        # profiler, and two cProfile instances cannot be active at once.
         for task in tasks:
-            total.update(_count_chunk(task))
+            total.update(_count_pretokens(task))
     else:
         with Pool(num_processes) as pool:
             for counts in pool.imap_unordered(_count_chunk, tasks):
