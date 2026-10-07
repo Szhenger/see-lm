@@ -22,6 +22,19 @@ DATA_DIR="${DATA_DIR:-$HERE/data}"
 TINYSTORIES=https://huggingface.co/datasets/roneneldan/TinyStories/resolve/main
 OWT=https://huggingface.co/datasets/stanford-cs336/owt-sample/resolve/main
 
+# unpack ARCHIVE UNPACKED: gunzip ARCHIVE into UNPACKED. A corrupt archive is
+# removed along with any partial output, so the next run downloads it again.
+unpack() {
+    local archive=$1 unpacked=$2
+    echo "unzip $(basename "$archive")"
+    rm -f "$unpacked"
+    if ! gunzip "$archive"; then
+        rm -f "$archive" "$unpacked"
+        echo "unpacking failed; removed $(basename "$archive"), rerun to download it again" >&2
+        exit 1
+    fi
+}
+
 # fetch URL NAME: download URL to data/NAME unless data/NAME already exists.
 # A .gz NAME is unpacked afterwards, and skipped if the unpacked file exists.
 fetch() {
@@ -29,9 +42,7 @@ fetch() {
     local target="$DATA_DIR/$name" final="$DATA_DIR/${name%.gz}"
     if [[ "$name" == *.gz && -f "$target" ]]; then
         # A finished download whose unpacking was interrupted: unpack it again.
-        echo "unzip $name"
-        rm -f "$final"
-        gunzip "$target"
+        unpack "$target" "$final"
         echo "done  $final"
         return
     fi
@@ -46,8 +57,7 @@ fetch() {
         --progress-bar --output "$target.partial" "$url/$name"
     mv "$target.partial" "$target"
     if [[ "$name" == *.gz ]]; then
-        echo "unzip $name"
-        gunzip "$target"
+        unpack "$target" "$final"
     fi
     echo "done  $final"
 }
