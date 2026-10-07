@@ -18,9 +18,8 @@ Layout this script expects:
             outputs/         <- created on first run
 
 Examples (from the project root):
-    uv run python tokenization/train_bpe.py                                   # all of TinyStories, vocab 10,000
-    uv run python tokenization/train_bpe.py --name tinystories                # same, outputs named tinystories_*
-    uv run python tokenization/train_bpe.py owt_train.txt --vocab-size 32000  # all of OpenWebText
+    uv run python tokenization/train_bpe.py                                   # all of TinyStories, vocab 10,000 -> tinystories_*
+    uv run python tokenization/train_bpe.py owt_train.txt --vocab-size 32000  # all of OpenWebText -> owt_*
     uv run python tokenization/train_bpe.py --sample-mb 100                   # only the first 100 MB, for quick feedback
     uv run python tokenization/train_bpe.py --processes 4
     uv run python tokenization/train_bpe.py --profile                         # cProfile tables for the main process and the workers
@@ -32,8 +31,9 @@ A bare file name is looked up in the data folder. A path works too.
 --impl NAME uses NAME_bpe.py, so new trainers are picked up automatically.
 
 Files written to tokenization/outputs/ (change with --out-dir). NAME comes from
---name and defaults to the trained file's name, lowercased, without extension;
-a sample therefore gets its own name and never overwrites a full-corpus run:
+--name and defaults to tinystories or owt for the course corpora, otherwise to
+the trained file's name, lowercased. A sample keeps its .firstNmb suffix, so it
+gets its own name and never overwrites a full-corpus run:
     NAME_vocab.pkl      exact, for loading into the tokenizer later
     NAME_merges.pkl     exact, for loading into the tokenizer later
     NAME_vocab.txt      readable: one "ID<TAB>token" per line
@@ -57,9 +57,13 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 
-# Where the corpora live: the data/ folder next to tokenization/.
-# Change this line, or pass --data-dir, if yours is somewhere else.
-DATA_DIR = HERE.parent / "data"
+# Where the corpora live: the data/ folder next to tokenization/. Set the
+# DATA_DIR environment variable (download_data.sh honors the same one) or pass
+# --data-dir if yours is somewhere else.
+DATA_DIR = Path(os.environ.get("DATA_DIR", HERE.parent / "data"))
+
+# Short output names for the course corpora; anything else is named after its file.
+SHORT_NAMES = {"tinystoriesv2-gpt4-train": "tinystories", "owt_train": "owt"}
 
 # Where the trained vocabulary, merges and summary go. Change with --out-dir.
 OUT_DIR = HERE / "outputs"
@@ -107,7 +111,7 @@ def main() -> None:
         help="worker processes (default: all cores)",
     )
     parser.add_argument("--special", nargs="*", default=["<|endoftext|>"], help="special tokens")
-    parser.add_argument("--name", help="prefix of the output files (default: the trained file's name, lowercased)")
+    parser.add_argument("--name", help="prefix of the output files (default: tinystories, owt, or the trained file's name)")
     parser.add_argument("--out-dir", type=Path, default=OUT_DIR, help=f"folder for the output files (default: {OUT_DIR})")
     parser.add_argument("--no-save", action="store_true", help="do not write the vocabulary, merges or summary")
     parser.add_argument("--profile", action="store_true", help="trace the run with cProfile and print the top functions")
@@ -125,7 +129,7 @@ def main() -> None:
     if args.sample_mb:
         corpus = make_sample(corpus, args.sample_mb, args.special)
     train_bpe = load_trainer(args.impl)
-    name = args.name or corpus.stem.lower()
+    name = args.name or default_name(corpus)
 
     # Pass num_processes only to trainers that accept it.
     kwargs = {}
@@ -177,7 +181,7 @@ def main() -> None:
                 worker_stats.dump_stats(workers_out)
                 print(f"worker profile saved to {workers_out}")
         if processes > 1 and not worker_stats:
-            print("\nnote: no worker profiles came back, so pre-tokenization is missing from the table below")
+            print("\nnote: no worker profiles came back; if the trainer used its pool, pre-tokenization is missing below")
         print(f"\n=== main process{' (merge loop; pre-tokenization ran in the workers)' if worker_stats else ''}")
         pstats.Stats(profiler).strip_dirs().sort_stats(args.sort).print_stats(args.top)
         if worker_stats:
@@ -205,6 +209,13 @@ def load_trainer(name: str):
     if not hasattr(module, "train_bpe"):
         sys.exit(f"{name}_bpe.py has no train_bpe() function")
     return module.train_bpe
+
+
+def default_name(corpus: Path) -> str:
+    """Prefix for the output files: tinystories, owt, or the file's own name, plus any sample suffix."""
+    stem = corpus.stem.lower()  # e.g. tinystoriesv2-gpt4-train.first100mb
+    base, dot, sample = stem.partition(".")
+    return SHORT_NAMES.get(base, base) + dot + sample
 
 
 def find_corpus(arg: str, data_dir: Path) -> Path:
