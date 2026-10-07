@@ -10,11 +10,11 @@
   "tokens": 10000,
   "merges": 9743,
   "processes": 10,
-  "profiled": false,
-  "seconds": 241.83,
-  "hours": 0.0672,
-  "peak_memory_mb_main": 7376,
-  "peak_memory_mb_largest_worker": 446,
+  "profiled": true,
+  "seconds": 325.26,
+  "hours": 0.0904,
+  "peak_memory_mb_main": 7337,
+  "peak_memory_mb_largest_worker": 385,
   "longest_token": "b'----------------'",
   "longest_token_bytes": 16
 }

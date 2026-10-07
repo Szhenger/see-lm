@@ -1,0 +1,20 @@
+{
+  "corpus": "TinyStoriesV2-GPT4-train.txt",
+  "corpus_mb": 2227.8,
+  "sample_mb": 0,
+  "implementation": "optimal_bpe",
+  "vocab_size_requested": 10000,
+  "special_tokens": [
+    "<|endoftext|>"
+  ],
+  "tokens": 10000,
+  "merges": 9743,
+  "processes": 10,
+  "profiled": true,
+  "seconds": 25.23,
+  "hours": 0.007,
+  "peak_memory_mb_main": 136,
+  "peak_memory_mb_largest_worker": 158,
+  "longest_token": "b' accomplishment'",
+  "longest_token_bytes": 15
+}

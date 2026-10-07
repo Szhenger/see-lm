@@ -26,6 +26,7 @@ import regex as re
 from collections import Counter, defaultdict
 from functools import lru_cache
 from multiprocessing import get_context
+from collections.abc import Sequence
 from typing import BinaryIO
 
 
@@ -79,64 +80,115 @@ def train_bpe(
 # --------------------------------------------------------------------------
 # Chunking (serial)
 # --------------------------------------------------------------------------
+@lru_cache(maxsize=None)
+def special_pattern(special_tokens: tuple[str, ...]) -> re.Pattern[bytes]:
+    """A bytes pattern matching any special token. Longest first, so a token
+    that contains another one wins the match. No capturing group, so split
+    drops the tokens and findall returns whole matches."""
+    ordered = sorted((t.encode("utf-8") for t in special_tokens), key=len, reverse=True)
+    return re.compile(b"|".join(re.escape(t) for t in ordered))
+
+
 def find_chunk_boundaries(
     file: BinaryIO,
     desired_num_chunks: int,
-    split_special_token: bytes,
+    special_tokens: Sequence[str],
 ) -> list[int]:
     """
-    Chunk the file into parts that can be counted independently.
-    May return fewer chunks if the boundaries end up overlapping.
-    """
-    assert isinstance(split_special_token, bytes), "Must represent special token as a bytestring"
+    Byte offsets that cut the file into parts which can be processed independently.
 
-    # Get total file size in bytes
+    Every interior boundary is where a special token starts in a scan of the
+    whole file with the same longest-first pattern the workers split on, so
+    no document and no special token is ever split between two chunks. May
+    return fewer chunks than asked for when boundaries coincide.
+    """
+    if not special_tokens:
+        raise ValueError("at least one special token is needed to cut the file safely")
+    pattern = special_pattern(tuple(special_tokens))
+    token_bytes = [t.encode("utf-8") for t in special_tokens]
+    alphabet = frozenset(b"".join(token_bytes))
+    longest = max(len(t) for t in token_bytes)
+
     file.seek(0, os.SEEK_END)
     file_size = file.tell()
-    file.seek(0)
 
+    # Initial guesses, uniformly spaced; each is moved to the start of the
+    # first special token that ends after it. Boundaries are found in order,
+    # because each search may fall back on the previous boundary.
     chunk_size = file_size // desired_num_chunks
+    boundaries = [0]
+    for i in range(1, desired_num_chunks):
+        boundaries.append(_token_start_after(file, pattern, alphabet, longest, boundaries[-1], i * chunk_size, file_size))
+    boundaries.append(file_size)
 
-    # Initial guesses for chunk boundary locations, uniformly spaced
-    # Chunks start on previous index, don't include last index
-    chunk_boundaries = [i * chunk_size for i in range(desired_num_chunks + 1)]
-    chunk_boundaries[-1] = file_size
+    # Unique and ordered; there may be fewer than desired_num_chunks.
+    return sorted(set(boundaries))
 
-    mini_chunk_size = 4096  # Read ahead by 4k bytes at a time
 
-    for bi in range(1, len(chunk_boundaries) - 1):
-        initial_position = chunk_boundaries[bi]
-        file.seek(initial_position)  # Start at boundary guess
-        while True:
-            mini_chunk = file.read(mini_chunk_size)  # Read a mini chunk
+def _token_start_after(
+    file: BinaryIO,
+    pattern: re.Pattern[bytes],
+    alphabet: frozenset[int],
+    longest: int,
+    previous: int,
+    guess: int,
+    file_size: int,
+    read_size: int = 4096,
+) -> int:
+    """
+    Offset of the first special token that ends after `guess`, or file_size if there is none.
 
-            # If EOF, this boundary should be at the end of the file
-            if mini_chunk == b"":
-                chunk_boundaries[bi] = file_size
+    "Special token" means a match of the longest-first pattern in a scan of
+    the whole file. A scan started at an arbitrary offset can disagree with
+    it, e.g. by starting inside a token and matching its second half, so the
+    scan starts right after the nearest byte before the guess that no special
+    token contains: no match can cover that byte, so from there on the two
+    scans agree. If there is no such byte since the previous boundary, which
+    is itself a token start (or the start of the file), the scan starts there.
+    """
+    # 1. Find the synchronization point, reading backwards from the guess.
+    sync = previous
+    position = guess
+    while position > previous:
+        low = max(previous, position - read_size)
+        file.seek(low)
+        block = file.read(position - low)
+        index = next((j for j in range(len(block) - 1, -1, -1) if block[j] not in alphabet), None)
+        if index is not None:
+            sync = low + index + 1
+            break
+        position = low
+
+    # 2. Scan forwards from there. A match is trusted only once `longest` bytes
+    #    from its start are in the window, so a longer token starting at the
+    #    same place cannot be missed; otherwise the window is extended first.
+    file.seek(sync)
+    position = sync  # file offset of window[0]
+    window = b""
+    while True:
+        block = file.read(read_size)
+        at_eof = not block
+        window += block
+        last_end = 0
+        for match in pattern.finditer(window):
+            if not at_eof and match.start() + longest > len(window):
+                resume = match.start()  # undecided: read more and look at it again
                 break
-
-            # Find the special token in the mini chunk
-            found_at = mini_chunk.find(split_special_token)
-            if found_at != -1:
-                chunk_boundaries[bi] = initial_position + found_at
-                break
-            initial_position += mini_chunk_size
-
-    # Make sure all boundaries are unique, but might be fewer than desired_num_chunks
-    return sorted(set(chunk_boundaries))
+            if position + match.end() > guess:
+                return position + match.start()
+            last_end = match.end()
+        else:
+            if at_eof:
+                return file_size
+            # No token starts before here: everything earlier was fully visible.
+            resume = max(last_end, len(window) - longest + 1, 0)
+        position += resume
+        window = window[resume:]
 
 
 # --------------------------------------------------------------------------
 # Pre-tokenization (parallel)
 # --------------------------------------------------------------------------
-@lru_cache(maxsize=None)
-def _special_pattern(special_tokens: tuple[str, ...]) -> re.Pattern[bytes]:
-    """A bytes pattern matching any special token. Longest first, so a token
-    that contains another one wins the match."""
-    ordered = sorted((t.encode("utf-8") for t in special_tokens), key=len, reverse=True)
-    return re.compile(b"|".join(re.escape(t) for t in ordered))
-
-
 # Set this environment variable to a folder and every pool worker traces its
 # counting with cProfile, writing worker-<pid>.prof there. train_bpe.py
 # --profile uses it. Nothing happens unless the variable is set.
@@ -199,7 +251,7 @@ def _count_pretokens(task: tuple[str, int, int, tuple[str, ...]]) -> Counter[byt
     # and each document is decoded on its own: a str is stored at the width
     # of its widest character, so decoding a whole chunk that contains one
     # emoji would take four bytes per character.
-    pieces = _special_pattern(special_tokens).split(chunk) if special_tokens else [chunk]
+    pieces = special_pattern(special_tokens).split(chunk) if special_tokens else [chunk]
     del chunk
 
     # findall and Counter.update both loop in C, so there is no Python-level
@@ -221,8 +273,8 @@ def parallel_pretokenize(
 ) -> Counter[bytes]:
     """Count pre-tokens across worker processes. Keys are UTF-8 encoded pre-tokens.
 
-    The file is cut at occurrences of special_tokens[0], so no document is
-    ever split between two chunks. With no special tokens there is no safe
+    The file is cut at special tokens, so no document is ever split between
+    two chunks. With no special tokens there is no safe
     place to cut, and the file is processed as a single chunk.
     """
     num_processes = num_processes or os.cpu_count() or 1
@@ -230,12 +282,11 @@ def parallel_pretokenize(
     specials = tuple(special_tokens)
 
     if special_tokens:
-        split_token = special_tokens[0].encode("utf-8")
         with open(path, "rb") as f:
             # Enough chunks to even out the load and to keep each one small.
             by_size = os.path.getsize(path) // TARGET_CHUNK_BYTES + 1
             num_chunks = max(num_processes * chunks_per_process, by_size)
-            boundaries = find_chunk_boundaries(f, num_chunks, split_token)
+            boundaries = find_chunk_boundaries(f, num_chunks, specials)
     else:
         boundaries = [0, os.path.getsize(path)]
 

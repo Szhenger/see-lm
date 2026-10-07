@@ -34,8 +34,8 @@ A bare file name is looked up in the data folder. A path works too.
 
 Files written to tokenization/trainer/artifacts/ (change with --out-dir). NAME is
 --name, or tinystories or owt for the course corpora, or else the trained file's
-name, lowercased. A sample run appends .firstNmb to NAME either way, so it never
-overwrites a full-corpus run:
+name, lowercased. A sample run appends .firstNmb to NAME and a profiled run
+appends .profiled, so neither overwrites a clean full-corpus run:
     NAME_vocab.pkl      exact, for loading into the tokenizer later
     NAME_merges.pkl     exact, for loading into the tokenizer later
     NAME_vocab.txt      readable: one "ID<TAB>token" per line
@@ -130,6 +130,8 @@ def main() -> None:
     name = args.name or short_name(whole)
     if sample_mb:
         name += f".first{sample_mb}mb"  # a sample never overwrites a full-corpus run
+    if args.profile:
+        name += ".profiled"  # profiler overhead inflates the timings, so keep them apart from a clean run
     trainer = load_trainer(args.impl)
     train_bpe = trainer.train_bpe
     # Trainers that define this name make each pool worker profile itself and
