@@ -8,6 +8,10 @@ import torch
 from torch import Tensor
 
 
+# Anchor snapshots to this file so tests work from any working directory.
+SNAPSHOT_DIR = Path(__file__).resolve().parent / "_snapshots"
+
+
 class DEFAULT:
     pass
 
@@ -23,7 +27,7 @@ class NumpySnapshot[A: (np.ndarray, Tensor)]:
 
     def __init__(
         self,
-        snapshot_dir: str = "tests/_snapshots",
+        snapshot_dir: str | Path = SNAPSHOT_DIR,
         default_force_update: bool = False,
         always_match_exact: bool = False,
         default_test_name: str | None = None,
@@ -95,7 +99,7 @@ class NumpySnapshot[A: (np.ndarray, Tensor)]:
 class Snapshot[A: (np.ndarray, Tensor)]:
     def __init__(
         self,
-        snapshot_dir: str = "tests/_snapshots",
+        snapshot_dir: str | Path = SNAPSHOT_DIR,
         default_force_update: bool = False,
         default_test_name: str | None = None,
     ):
