@@ -1,6 +1,6 @@
 """
-The position-wise feed-forward network: a SwiGLU block, as used by modern
-language models.
+The position-wise feed-forward network, a SwiGLU block, and the SiLU
+activation it is built on, as used by modern language models.
 
 SwiGLU gates an up-projection with a SiLU-activated projection and then
 projects back down:
@@ -17,8 +17,23 @@ import math
 import torch
 from torch import nn
 
-from architecture.modules.linear_module import Linear
-from architecture.transformer.activation import silu
+from architecture.layers.basic_modules import Linear
+
+
+def silu(x: torch.Tensor) -> torch.Tensor:
+    # torch.sigmoid is numerically stable at both tails, unlike a hand-rolled
+    # 1 / (1 + exp(-x)), which overflows exp for large negative x.
+    return x * torch.sigmoid(x)
+
+
+class SiLU(nn.Module):
+    """The SiLU activation x * sigmoid(x), as used inside the SwiGLU feed-forward
+    network. Elementwise and stateless, so it works on any shape. A module of its
+    own so that it can be swapped, counted or inspected independently of the
+    block that uses it.
+    """
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return silu(x)
 
 
 class SwiGLU(nn.Module):
@@ -41,9 +56,13 @@ class SwiGLU(nn.Module):
         self.w1 = Linear(d_model, d_ff, device=device, dtype=dtype)
         self.w2 = Linear(d_ff, d_model, device=device, dtype=dtype)
         self.w3 = Linear(d_model, d_ff, device=device, dtype=dtype)
+        # A submodule rather than a bare call to silu, so the activation shows
+        # up in named_modules() and can be swapped, counted or hooked. It has
+        # no parameters, so the state dict keys are unchanged.
+        self.act = SiLU()
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.w2(silu(self.w1(x)) * self.w3(x))
+        return self.w2(self.act(self.w1(x)) * self.w3(x))
 
     def extra_repr(self) -> str:
         return f"d_model={self.d_model}, d_ff={self.d_ff}"

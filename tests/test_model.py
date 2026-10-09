@@ -55,7 +55,6 @@ def test_swiglu(numpy_snapshot, ts_state_dict, in_embeddings, d_model, d_ff):
     numpy_snapshot.assert_match(actual_output, atol=1e-5)
 
 
-@pytest.mark.xfail(raises=NotImplementedError, reason="adapter not implemented yet")
 def test_scaled_dot_product_attention(numpy_snapshot, q, k, v, mask):
     actual_output = run_scaled_dot_product_attention(Q=q, K=k, V=v, mask=mask)
     numpy_snapshot.assert_match(
@@ -64,7 +63,6 @@ def test_scaled_dot_product_attention(numpy_snapshot, q, k, v, mask):
     )
 
 
-@pytest.mark.xfail(raises=NotImplementedError, reason="adapter not implemented yet")
 def test_4d_scaled_dot_product_attention(numpy_snapshot, q, k, v, mask):
     # Shape: (batch_size, num_heads, seq_len, d_k)
     q, k, v = (rearrange(x, "(batch head) seq d -> batch head seq d", head=2) for x in (q, k, v))
@@ -77,7 +75,6 @@ def test_4d_scaled_dot_product_attention(numpy_snapshot, q, k, v, mask):
     )
 
 
-@pytest.mark.xfail(raises=NotImplementedError, reason="adapter not implemented yet")
 def test_multihead_self_attention(numpy_snapshot, in_embeddings, d_model, n_heads, ts_state_dict):
     d, _ = ts_state_dict
     q_proj_weight, k_proj_weight, v_proj_weight, o_proj_weight = [
@@ -95,7 +92,6 @@ def test_multihead_self_attention(numpy_snapshot, in_embeddings, d_model, n_head
     numpy_snapshot.assert_match(actual_output, atol=1e-5)
 
 
-@pytest.mark.xfail(raises=NotImplementedError, reason="adapter not implemented yet")
 def test_multihead_self_attention_with_rope(
     numpy_snapshot, in_embeddings, d_model, n_heads, ts_state_dict, n_keys, theta, pos_ids
 ):
@@ -162,7 +158,6 @@ def test_transformer_lm_truncated_input(
     )
 
 
-@pytest.mark.xfail(raises=NotImplementedError, reason="adapter not implemented yet")
 def test_transformer_block(numpy_snapshot, ts_state_dict, in_embeddings, d_model, n_heads, d_ff, n_keys, theta):
     block_weights = {k.replace("layers.0.", ""): v for k, v in ts_state_dict[0].items() if "layers.0." in k}
 
@@ -191,7 +186,6 @@ def test_rmsnorm(numpy_snapshot, ts_state_dict, in_embeddings):
     numpy_snapshot.assert_match(actual_output, atol=1e-4)
 
 
-@pytest.mark.xfail(raises=NotImplementedError, reason="adapter not implemented yet")
 def test_rope(numpy_snapshot, in_embeddings, d_model, theta, n_queries, pos_ids):
     output = run_rope(
         d_model, theta=theta, max_seq_len=n_queries, in_query_or_key=in_embeddings, token_positions=pos_ids
