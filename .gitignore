@@ -9,3 +9,6 @@ __pycache__/
 
 # Profiler output
 *.prof
+
+# Claude Code worktrees
+.claude/worktrees/
