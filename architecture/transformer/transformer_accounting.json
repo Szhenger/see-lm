@@ -1,0 +1,144 @@
+{
+  "vocab_size": 50257,
+  "context_length": 1024,
+  "flops_per_matmul": "2 m n p for (m x n) @ (n x p); elementwise work is not counted",
+  "bytes_per_parameter": 4,
+  "models": {
+    "small": {
+      "config": {
+        "vocab_size": 50257,
+        "context_length": 1024,
+        "num_layers": 12,
+        "d_model": 768,
+        "num_heads": 12,
+        "d_ff": 2048
+      },
+      "parameters": {
+        "token_embeddings": 38597376,
+        "attention": 28311552,
+        "feed_forward": 56623104,
+        "rms_norm": 19200,
+        "lm_head": 38597376,
+        "total": 162148608
+      },
+      "fp32_bytes": 648594432,
+      "forward_flops": {
+        "qkv_proj": 43486543872,
+        "scores": 19327352832,
+        "weights_v": 19327352832,
+        "output_proj": 14495514624,
+        "feed_forward": 115964116992,
+        "lm_head": 79047426048,
+        "total": 291648307200
+      },
+      "forward_flop_shares": {
+        "attn projections": 0.1988,
+        "attn scores (L^2)": 0.1325,
+        "feed-forward": 0.3976,
+        "lm_head": 0.271
+      }
+    },
+    "medium": {
+      "config": {
+        "vocab_size": 50257,
+        "context_length": 1024,
+        "num_layers": 24,
+        "d_model": 1024,
+        "num_heads": 16,
+        "d_ff": 2752
+      },
+      "parameters": {
+        "token_embeddings": 51463168,
+        "attention": 100663296,
+        "feed_forward": 202899456,
+        "rms_norm": 50176,
+        "lm_head": 51463168,
+        "total": 406539264
+      },
+      "fp32_bytes": 1626157056,
+      "forward_flops": {
+        "qkv_proj": 154618822656,
+        "scores": 51539607552,
+        "weights_v": 51539607552,
+        "output_proj": 51539607552,
+        "feed_forward": 415538085888,
+        "lm_head": 105396568064,
+        "total": 830172299264
+      },
+      "forward_flop_shares": {
+        "attn projections": 0.2483,
+        "attn scores (L^2)": 0.1242,
+        "feed-forward": 0.5005,
+        "lm_head": 0.127
+      }
+    },
+    "large": {
+      "config": {
+        "vocab_size": 50257,
+        "context_length": 1024,
+        "num_layers": 36,
+        "d_model": 1280,
+        "num_heads": 20,
+        "d_ff": 3456
+      },
+      "parameters": {
+        "token_embeddings": 64328960,
+        "attention": 235929600,
+        "feed_forward": 477757440,
+        "rms_norm": 93440,
+        "lm_head": 64328960,
+        "total": 842438400
+      },
+      "fp32_bytes": 3369753600,
+      "forward_flops": {
+        "qkv_proj": 362387865600,
+        "scores": 96636764160,
+        "weights_v": 96636764160,
+        "output_proj": 120795955200,
+        "feed_forward": 978447237120,
+        "lm_head": 131745710080,
+        "total": 1786650296320
+      },
+      "forward_flop_shares": {
+        "attn projections": 0.2704,
+        "attn scores (L^2)": 0.1082,
+        "feed-forward": 0.5476,
+        "lm_head": 0.0737
+      }
+    },
+    "xl": {
+      "config": {
+        "vocab_size": 50257,
+        "context_length": 1024,
+        "num_layers": 48,
+        "d_model": 1600,
+        "num_heads": 25,
+        "d_ff": 4288
+      },
+      "parameters": {
+        "token_embeddings": 80411200,
+        "attention": 491520000,
+        "feed_forward": 987955200,
+        "rms_norm": 155200,
+        "lm_head": 80411200,
+        "total": 1640452800
+      },
+      "fp32_bytes": 6561811200,
+      "forward_flops": {
+        "qkv_proj": 754974720000,
+        "scores": 161061273600,
+        "weights_v": 161061273600,
+        "output_proj": 251658240000,
+        "feed_forward": 2023332249600,
+        "lm_head": 164682137600,
+        "total": 3516769894400
+      },
+      "forward_flop_shares": {
+        "attn projections": 0.2862,
+        "attn scores (L^2)": 0.0916,
+        "feed-forward": 0.5753,
+        "lm_head": 0.0468
+      }
+    }
+  }
+}

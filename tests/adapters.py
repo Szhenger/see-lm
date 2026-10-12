@@ -15,6 +15,7 @@ from architecture.layers.positionwise_feedforward import SiLU, SwiGLU
 from architecture.layers.rms_norm import RMSNorm
 from architecture.layers.rope_matrix import RotaryPositionalEmbedding
 from architecture.layers.softmax_function import softmax
+from architecture.transformer.see_lm import TransformerLM
 from architecture.transformer.transformer_block import TransformerBlock
 from tokenization.tokenizer.optimal_tokenizer import OptimalTokenizer
 from tokenization.trainer.optimal_bpe import train_bpe
@@ -401,7 +402,13 @@ def run_transformer_lm(
         Float[Tensor, "batch_size sequence_length vocab_size"]: Tensor with the predicted unnormalized
         next-word distribution for each token.
     """
-    raise NotImplementedError
+    weight = next(iter(weights.values()))
+    model = TransformerLM(
+        vocab_size, context_length, d_model, num_layers, num_heads, d_ff, rope_theta,
+        device=weight.device, dtype=weight.dtype,
+    )
+    model.load_state_dict(weights)
+    return model(in_indices)
 
 
 def run_rmsnorm(
