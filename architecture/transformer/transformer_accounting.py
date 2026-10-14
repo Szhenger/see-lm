@@ -116,24 +116,30 @@ def flop_shares(flops: dict[str, int]) -> dict[str, float]:
     return {group: sum(flops[k] for k in keys) / flops["total"] for group, keys in GROUPS.items()}
 
 
-def verify(cfg: ModelConfig, parameters: int, flops: int) -> None:
-    """Check the formulas against TransformerLM on the meta device, where the model costs nothing to build or run."""
+def verify(cfg: ModelConfig, batch_size: int = 1) -> TransformerLM:
+    """Check the formulas against TransformerLM on the meta device, where the model costs nothing to build or run, and return it.
+
+    The forward pass is over batch_size sequences, which must cost batch_size times one sequence: the attention terms are B L^2, not (B L)^2.
+    """
     meta = torch.device("meta")
     model = TransformerLM(**asdict(cfg), rope_theta=ROPE_THETA, device=meta)
+    parameters = count_parameters(cfg)["total"]
     actual = sum(p.numel() for p in model.parameters())
     if actual != parameters:
         raise AssertionError(f"model has {actual:,} parameters, accounting says {parameters:,}")
+    flops = batch_size * count_flops(cfg, cfg.context_length)["total"]
     # Only mm and bmm occur here and both have counter formulas, so the totals must agree exactly.
     with FlopCounterMode(display=False) as counter:
-        model(torch.zeros(1, cfg.context_length, dtype=torch.long, device=meta))
+        model(torch.zeros(batch_size, cfg.context_length, dtype=torch.long, device=meta))
     if counter.get_total_flops() != flops:
-        raise AssertionError(f"forward pass is {counter.get_total_flops():,} FLOPs, accounting says {flops:,}")
+        raise AssertionError(f"forward pass over {batch_size} sequences is {counter.get_total_flops():,} FLOPs, accounting says {flops:,}")
+    return model
 
 
 def account(cfg: ModelConfig) -> dict:
     parameters = count_parameters(cfg)
     flops = count_flops(cfg, cfg.context_length)
-    verify(cfg, parameters["total"], flops["total"])
+    verify(cfg)
     return {
         "config": asdict(cfg),
         "parameters": parameters,
@@ -143,11 +149,21 @@ def account(cfg: ModelConfig) -> dict:
     }
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--models", nargs="+", choices=list(GPT2), default=list(GPT2), help="GPT-2 sizes to account for (default: all)")
+def add_model_arguments(parser: argparse.ArgumentParser, default_models: list[str]) -> None:
+    """--models, --vocab-size and --context-length: the GPT-2 configurations a script accounts for."""
+    parser.add_argument("--models", nargs="+", choices=list(GPT2), default=default_models, help=f"GPT-2 sizes to account for (default: {' '.join(default_models)})")
     parser.add_argument("--vocab-size", type=int, default=VOCAB_SIZE, help=f"vocabulary size (default: {VOCAB_SIZE:,})")
     parser.add_argument("--context-length", type=int, default=CONTEXT_LENGTH, help=f"context length, also the length of the input sequence (default: {CONTEXT_LENGTH:,})")
+
+
+def model_configs(args: argparse.Namespace) -> dict[str, ModelConfig]:
+    """The configurations named by --models at the given --vocab-size and --context-length."""
+    return {name: gpt2_config(name, args.vocab_size, args.context_length) for name in args.models}
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    add_model_arguments(parser, default_models=list(GPT2))
     parser.add_argument("--out", type=Path, default=HERE / "transformer_accounting.json", help="where to write the results")
     args = parser.parse_args()
 
@@ -156,7 +172,7 @@ def main() -> None:
         "context_length": args.context_length,
         "flops_per_matmul": "2 m n p for (m x n) @ (n x p); elementwise work is not counted",
         "bytes_per_parameter": BYTES_PER_FP32,
-        "models": {name: account(gpt2_config(name, args.vocab_size, args.context_length)) for name in args.models},
+        "models": {name: account(cfg) for name, cfg in model_configs(args).items()},
     }
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(results, indent=2) + "\n", encoding="utf-8")

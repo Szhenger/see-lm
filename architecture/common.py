@@ -1,7 +1,7 @@
 """
-What the architecture modules share: the floating point input check and the
-precision policy for the arithmetic inside them, and the table lookup that
-the embedding and RoPE both gather rows with.
+What the architecture modules share, and the optimization modules reuse: the
+floating point input check and the precision policy for the arithmetic inside
+them, and the table lookup that the embedding and RoPE both gather rows with.
 
 RMSNorm and softmax sum or exponentiate many terms, attention contracts Q
 against K and the weights against V, and RoPE multiplies the input against
@@ -13,10 +13,15 @@ float64; bf16, fp16 and float32 compute in float32) so that the modules
 cannot drift apart, and so that a change such as an upcast switch is made in
 one place. `upcast` is the single-input form; `upcast_all` is the same policy
 for a function of several tensors, which are promoted to one common dtype.
+A scalar that leaves the model rather than re-entering it, such as the
+cross-entropy loss or a gradient norm, is computed under the same policy but
+not cast back: narrowing a scalar saves nothing and only quantizes it.
 
 Embedding looks up a row of its weight per token id and RoPE looks up a row of
 its cos and sin tables per position. Both go through `lookup`, so the id
 validation and the choice of index_select over plain indexing are made once.
+The id validation itself is `check_ids`, which the cross-entropy loss also
+applies to its targets, so the accepted id dtypes are decided in one place.
 """
 
 import functools
@@ -57,6 +62,12 @@ def upcast_all(
     return [x.to(compute_dtype) for x in xs], in_dtype
 
 
+def check_ids(ids: torch.Tensor, name: str) -> None:
+    """Raise TypeError, naming the caller, unless ids is int32 or int64."""
+    if ids.dtype not in (torch.int32, torch.int64):
+        raise TypeError(f"{name} expects int32 or int64 ids, got {ids.dtype}")
+
+
 def lookup(table: torch.Tensor, ids: torch.Tensor, name: str) -> torch.Tensor:
     """Return the rows of `table` at `ids`, with shape (*ids.shape, *table.shape[1:]).
 
@@ -72,6 +83,5 @@ def lookup(table: torch.Tensor, ids: torch.Tensor, name: str) -> torch.Tensor:
     device-to-host sync, which matters because RoPE runs this on Q and K in
     every attention layer.
     """
-    if ids.dtype not in (torch.int32, torch.int64):
-        raise TypeError(f"{name} expects int32 or int64 ids, got {ids.dtype}")
+    check_ids(ids, name)
     return table.index_select(0, ids.reshape(-1)).view(*ids.shape, *table.shape[1:])
