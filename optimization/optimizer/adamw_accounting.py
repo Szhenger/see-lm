@@ -58,7 +58,7 @@ from architecture.transformer.transformer_accounting import (
     model_configs,
     verify,
 )
-from optimization.learner.cross_entropy import cross_entropy
+from optimization.learning.cross_entropy import cross_entropy
 
 HERE = Path(__file__).resolve().parent
 

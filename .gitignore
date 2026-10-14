@@ -18,3 +18,6 @@ __pycache__/
 
 # Written by the *_accounting.py scripts
 *_accounting.json
+
+# Training runs: checkpoints and logs
+training/runs/
