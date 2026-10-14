@@ -14,10 +14,15 @@ import torch
 
 
 @torch.no_grad()
-def clip_grad_norm_(parameters: Iterable[torch.nn.Parameter], max_l2_norm: float, eps: float = 1e-6) -> torch.Tensor:
+def clip_grad_norm_(
+    parameters: Iterable[torch.nn.Parameter] | torch.nn.Parameter, max_l2_norm: float, *, eps: float = 1e-6
+) -> torch.Tensor:
     """Scale the gradients of `parameters` in place so their combined l2 norm is at most max_l2_norm; return the norm before clipping."""
     if max_l2_norm <= 0:
         raise ValueError(f"max_l2_norm must be positive, got {max_l2_norm}")
+    # A lone tensor would otherwise be iterated over its rows, which carry no grad, and silently clip nothing.
+    if isinstance(parameters, torch.Tensor):
+        parameters = [parameters]
     grads = [p.grad for p in parameters if p.grad is not None]
     if not grads:
         return torch.zeros(())

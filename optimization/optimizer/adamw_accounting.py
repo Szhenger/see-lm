@@ -42,6 +42,7 @@ Writes adamw_accounting.json next to this script (change with --out).
 
 import argparse
 import json
+from collections.abc import Callable
 from dataclasses import asdict
 from pathlib import Path
 
@@ -198,6 +199,16 @@ def account(cfg: ModelConfig, args: argparse.Namespace) -> dict:
     }
 
 
+def positive(kind: type) -> Callable[[str], int | float]:
+    """An argparse type: `kind` (int or float), rejecting anything not strictly positive."""
+    def parse(text: str) -> int | float:
+        value = kind(text)
+        if not value > 0:  # also rejects nan
+            raise argparse.ArgumentTypeError(f"must be positive, got {text}")
+        return value
+    return parse
+
+
 def gb(n: float) -> str:
     return f"{n / 1e9:,.2f} GB"
 
@@ -237,18 +248,18 @@ def report(name: str, r: dict) -> None:
     print(f"    total     {s['total']:.3e}\n")
 
     print(f"(d) {t['steps']:,} steps at batch_size {t['batch_size']:,} on {t['peak_tflops']} TFLOP/s at {100 * t['mfu']:.0f}% MFU")
-    print(f"    {t['tokens']:.3e} tokens, {t['total_flops']:.3e} FLOPs (6 P D estimate: {t['six_pd_flops']:.3e})")
+    print(f"    {t['tokens']:.3e} tokens, {t['total_flops']:.3e} FLOPs (6 P D estimate with P = all parameters: {t['six_pd_flops']:.3e})")
     print(f"    {t['hours']:,.1f} hours = {t['hours'] / 24:,.1f} days (6 P D estimate: {t['six_pd_hours']:,.1f} hours)\n")
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     add_model_arguments(parser, default_models=["xl"])
-    parser.add_argument("--batch-size", type=int, default=BATCH_SIZE, help=f"batch size for (c) and (d) (default: {BATCH_SIZE:,})")
-    parser.add_argument("--memory-gb", type=float, default=MEMORY_GB, help=f"memory budget for (b), in GB of 1e9 bytes (default: {MEMORY_GB})")
-    parser.add_argument("--steps", type=int, default=STEPS, help=f"training steps for (d) (default: {STEPS:,})")
-    parser.add_argument("--mfu", type=float, default=MFU, help=f"model FLOPs utilization for (d) (default: {MFU})")
-    parser.add_argument("--peak-tflops", type=float, default=PEAK_TFLOPS, help=f"hardware peak in TFLOP/s for (d) (default: {PEAK_TFLOPS})")
+    parser.add_argument("--batch-size", type=positive(int), default=BATCH_SIZE, help=f"batch size for (c) and (d) (default: {BATCH_SIZE:,})")
+    parser.add_argument("--memory-gb", type=positive(float), default=MEMORY_GB, help=f"memory budget for (b), in GB of 1e9 bytes (default: {MEMORY_GB})")
+    parser.add_argument("--steps", type=positive(int), default=STEPS, help=f"training steps for (d) (default: {STEPS:,})")
+    parser.add_argument("--mfu", type=positive(float), default=MFU, help=f"model FLOPs utilization for (d) (default: {MFU})")
+    parser.add_argument("--peak-tflops", type=positive(float), default=PEAK_TFLOPS, help=f"hardware peak in TFLOP/s for (d) (default: {PEAK_TFLOPS})")
     parser.add_argument("--out", type=Path, default=HERE / "adamw_accounting.json", help="where to write the results")
     args = parser.parse_args()
 

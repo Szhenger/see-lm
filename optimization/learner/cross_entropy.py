@@ -52,7 +52,8 @@ def cross_entropy(logits: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
     logits, _ = upcast(logits, "cross_entropy")
     # The shift cancels in the loss, so it is taken off the graph: amax would otherwise save the full logits for backward.
     shifted = logits - logits.detach().amax(dim=-1, keepdim=True)
-    # (..., vocab_size) -> (...), the shifted logit of each target id, gathered before the in-place exp below
+    # (..., vocab_size) -> (...), the shifted logit of each target id, gathered before the in-place exp below.
+    # int64 is required: gather accepts int32 but returns wrong rows for an expanded int32 index on the CPU.
     target_logit = _GatherTarget.apply(shifted, targets.to(torch.int64).unsqueeze(-1)).squeeze(-1)
     # In place: nothing has saved shifted, so the exponentials are the only full-size tensor kept for backward.
     log_normalizer = shifted.exp_().sum(dim=-1).log()

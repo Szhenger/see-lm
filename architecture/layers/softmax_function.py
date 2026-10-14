@@ -41,8 +41,10 @@ def softmax(x: torch.Tensor, dim: int) -> torch.Tensor:
     # keepdim keeps the result broadcastable against x. Entries that are -inf
     # (a mask) become exp(-inf) = 0 and drop out of the sum; a slice that is
     # entirely -inf has no distribution to give and comes back NaN, as it
-    # does from torch.softmax.
-    shifted = x - x.amax(dim=dim, keepdim=True)
+    # does from torch.softmax. The shift cancels in the gradient, so it is
+    # taken off the graph: amax would otherwise save the full input (every
+    # attention layer's score matrix) for backward.
+    shifted = x - x.detach().amax(dim=dim, keepdim=True)
     exp = shifted.exp()
     return (exp / exp.sum(dim=dim, keepdim=True)).to(in_dtype)
 
