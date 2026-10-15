@@ -7,7 +7,8 @@ That is O(num_merges * corpus_size): fine for small files, slow for big ones.
 import os
 from collections import Counter
 import regex as re
-from pathlib import Path
+
+from tokenization.common import initial_vocab
 
 
 # GPT-2 pre-tokenization pattern.
@@ -22,9 +23,7 @@ def train_bpe(
     special_tokens: list[str]) -> tuple[dict[int, bytes], list[tuple[bytes, bytes]]]:
     """Train a BPE tokenizer."""
     # 1. Initialize the vocabulary: 256 single bytes, then the special tokens.
-    vocab: dict[int, bytes] = {i: bytes([i]) for i in range(256)}
-    for token in special_tokens:
-        vocab[len(vocab)] = token.encode("utf-8")
+    special_tokens, vocab = initial_vocab(special_tokens, vocab_size)
 
     # 2. Pre-tokenize.
     with open(input_path, encoding="utf-8") as f:

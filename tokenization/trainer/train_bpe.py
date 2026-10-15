@@ -58,7 +58,7 @@ import tempfile
 import time
 from pathlib import Path
 
-from tokenization.common import ARTIFACTS_DIR, DATA_DIR, END_OF_TEXT, non_negative_int, positive_int
+from tokenization.common import ARTIFACTS_DIR, DATA_DIR, END_OF_TEXT, initial_vocab, non_negative_int, positive_int
 
 HERE = Path(__file__).resolve().parent
 
@@ -70,7 +70,7 @@ SHORT_NAMES = {"tinystoriesv2-gpt4-train": "tinystories", "owt_train": "owt"}
 OUT_DIR = ARTIFACTS_DIR
 
 # Trained on when no corpus is given on the command line: the full TinyStories
-# training set, as named by the course's download command.
+# training set, as named by CS336's download command.
 DEFAULT_CORPUS = "TinyStoriesV2-GPT4-train.txt"
 
 # How much of the corpus to use by default, in megabytes. 0 means the whole file.
@@ -119,6 +119,12 @@ def main() -> None:
     args = parser.parse_args()
     if args.out:
         args.profile = True
+    # Fail before the corpus is read if the trainers would: their starting
+    # vocabulary (256 bytes + special tokens) must fit in --vocab-size.
+    try:
+        args.special, _ = initial_vocab(args.special, args.vocab_size)
+    except ValueError as error:
+        parser.error(f"--vocab-size: {error}" if "vocab_size" in str(error) else f"--special: {error}")
 
     whole = find_corpus(args.corpus, args.data_dir)
     corpus = make_sample(whole, args.sample_mb, args.special) if args.sample_mb else whole
@@ -215,7 +221,9 @@ def available_implementations() -> list[str]:
 
 def load_trainer(name: str):
     """Return the module NAME_bpe.py, checked to have a train_bpe() function."""
-    module = importlib.import_module(f"{name}_bpe")
+    # Package-qualified, so it resolves whether this file runs as a path or with
+    # -m, and is the one module object the tokenizers import too.
+    module = importlib.import_module(f"tokenization.trainer.{name}_bpe")
     if not hasattr(module, "train_bpe"):
         sys.exit(f"{name}_bpe.py has no train_bpe() function")
     return module

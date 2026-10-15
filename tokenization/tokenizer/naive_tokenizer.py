@@ -121,8 +121,7 @@ class NaiveTokenizer:
         limit = len(text) - max(1, self._longest_special - 1)
         if limit <= 0:
             return 0
-        cut = 0
-        pos = 0
+        cut = pos = 0
         specials = self.special_re.finditer(text) if self.special_re is not None else iter(())
         while True:
             match = next(specials, None)

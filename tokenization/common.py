@@ -33,6 +33,28 @@ END_OF_TEXT = "<|endoftext|>"
 TOKENIZERS = {"tinystories": 10_000, "owt": 32_000}
 
 
+def initial_vocab(special_tokens: list[str], vocab_size: int) -> tuple[list[str], dict[int, bytes]]:
+    """
+    The special tokens, deduplicated with order kept, and the vocabulary a
+    trainer starts from: the 256 single bytes, then the special tokens. One
+    that is already a single byte keeps that byte's ID, as the tokenizer does,
+    so no two IDs share bytes. Raises ValueError if vocab_size has no room.
+    """
+    special_tokens = list(dict.fromkeys(special_tokens))
+    if "" in special_tokens:
+        raise ValueError("special tokens must not be empty")
+    vocab: dict[int, bytes] = {i: bytes([i]) for i in range(256)}
+    present = set(vocab.values())
+    for token in special_tokens:
+        token_bytes = token.encode("utf-8")
+        if token_bytes not in present:
+            vocab[len(vocab)] = token_bytes
+            present.add(token_bytes)
+    if vocab_size < len(vocab):
+        raise ValueError(f"vocab_size must be at least {len(vocab)} (256 bytes + {len(vocab) - 256} special token(s)), got {vocab_size}")
+    return special_tokens, vocab
+
+
 def positive_int(text: str) -> int:
     value = int(text)
     if value < 1:

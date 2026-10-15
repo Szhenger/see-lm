@@ -29,6 +29,8 @@ from multiprocessing import get_context
 from collections.abc import Sequence
 from typing import BinaryIO
 
+from tokenization.common import initial_vocab
+
 
 # GPT-2 pre-tokenization pattern. It must contain no capturing group: findall
 # would then return the group instead of the whole match.
@@ -58,9 +60,7 @@ def train_bpe(
         merges: merged pairs, in the order they were created
     """
     # 1. Initialize the vocabulary: 256 single bytes, then the special tokens.
-    vocab: dict[int, bytes] = {i: bytes([i]) for i in range(256)}
-    for token in special_tokens:
-        vocab[len(vocab)] = token.encode("utf-8")
+    special_tokens, vocab = initial_vocab(special_tokens, vocab_size)
 
     # 2. Pre-tokenize, in parallel.
     counts = parallel_pretokenize(input_path, special_tokens, num_processes)
@@ -339,20 +339,19 @@ def _merge_loop(
             pair_counts[pair] += freq
             pair_to_words[pair].add(i)
 
-    # Max-heap on (count, pair bytes), built from a min-heap by negating the
-    # count and reversing the bytes order. Entries are never updated in place:
+    # Max-heap on (count, pair bytes): the highest count first, and on a tie
+    # the lexicographically greater pair. Entries are never updated in place:
     # a changed count pushes a fresh entry, and stale ones are skipped on pop.
-    heap = [(-n, _Desc((vocab[a], vocab[b])), (a, b)) for (a, b), n in pair_counts.items()]
-    heapq.heapify(heap)
+    heap = [(n, (vocab[a], vocab[b]), (a, b)) for (a, b), n in pair_counts.items()]
+    heapq.heapify_max(heap)
 
     # 4. Merge until the vocabulary is full.
     merges: list[tuple[bytes, bytes]] = []
     while len(vocab) < vocab_size:
-        # Highest count wins; ties go to the lexicographically greater pair.
         best: Pair | None = None
         while heap:
-            neg_count, _, pair = heapq.heappop(heap)
-            if pair_counts.get(pair, 0) == -neg_count:  # still current?
+            count, _, pair = heapq.heappop_max(heap)
+            if pair_counts.get(pair, 0) == count:  # still current?
                 best = pair
                 break
         if best is None:  # every pre-token is already a single token
@@ -416,28 +415,11 @@ def _merge_loop(
             n = pair_counts.get(pair, 0) + change
             if n > 0:
                 pair_counts[pair] = n
-                heapq.heappush(heap, (-n, _Desc((vocab[pair[0]], vocab[pair[1]])), pair))
+                heapq.heappush_max(heap, (n, (vocab[pair[0]], vocab[pair[1]]), pair))
             else:
                 pair_counts.pop(pair, None)
 
     return vocab, merges
-
-
-class _Desc:
-    """
-    Wraps a pair of bytes so that a min-heap pops the lexicographically greatest first.
-
-    No __eq__ on purpose: tuple comparison then falls straight through to __lt__
-    when counts tie, which is the common case.
-    """
-
-    __slots__ = ("key",)
-
-    def __init__(self, key: tuple[bytes, bytes]) -> None:
-        self.key = key
-
-    def __lt__(self, other: "_Desc") -> bool:
-        return self.key > other.key
 
 
 # The guard is required: worker processes re-import this file, and anything
