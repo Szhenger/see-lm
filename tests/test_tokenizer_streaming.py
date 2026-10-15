@@ -95,6 +95,37 @@ def test_encode_iterable_random_pieces_match_encode(optimal):
         assert list(optimal.encode_iterable(pieces)) == expected, seed
 
 
+def test_encode_iterable_whitespace_before_a_special_token_cut_near_its_end(optimal, naive):
+    # How a whitespace run splits depends on the character after it; here that
+    # is the start of a special token still missing its last one or two characters.
+    single = OptimalTokenizer(optimal.vocab, optimal.merges, [EOT])
+    cases = [
+        (single, ["ab  <|endoftext", "|>"]),
+        (single, ["ab\n\n<|endoftext|", ">"]),
+        (single, ["ab \n <|endoftext", "|>"]),
+        (optimal, ["ab  " + EOT + "<|endoftext", "|>"]),  # the doubled token
+        (naive, ["ab  " + EOT + "<|endoftext", "|>"]),
+    ]
+    for tokenizer, pieces in cases:
+        assert list(tokenizer.encode_iterable(pieces)) == tokenizer.encode("".join(pieces)), pieces
+
+
+def test_encode_iterable_contraction_cut_after_the_apostrophe(optimal):
+    # 'll, 've and 're look two characters past the apostrophe.
+    plain = OptimalTokenizer(optimal.vocab, optimal.merges)
+    for pieces in (["'l", "l"], ["we'r", "e"], ["I'v", "e"], ["it'", "s"], ["'", "l", "l"]):
+        assert list(plain.encode_iterable(pieces)) == plain.encode("".join(pieces)), pieces
+
+
+def test_encode_iterable_tiny_pieces_match_encode(optimal):
+    single = OptimalTokenizer(optimal.vocab, optimal.merges, [EOT])
+    text = "She'll go.  \n" + EOT + "we're done\n\n" + EOT + "it's   fine\t" + EOT + "'tis"
+    expected = single.encode(text)
+    for seed in range(100):
+        pieces = _random_pieces(text, random.Random(seed), max_len=4)
+        assert list(single.encode_iterable(pieces)) == expected, seed
+
+
 def test_encode_iterable_without_special_tokens(optimal):
     plain = OptimalTokenizer(optimal.vocab, optimal.merges)
     text = TEXT.replace(EOT, " | ")
