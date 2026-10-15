@@ -108,17 +108,21 @@ class NaiveTokenizer:
         """
         Length of the longest prefix whose encoding cannot change when more text follows.
 
-        The prefix ends on a special token or pre-token boundary. The last
-        character is held back because the pre-token pattern looks one character
-        ahead, and the last (longest special token - 1) characters are held back
-        because text that follows could complete a special token starting there
-        or lengthen one ending there. A cut between a whitespace character and a
-        non-whitespace one is never made either: whitespace before a non-whitespace
-        character is split differently from whitespace at the end of the text.
+        The prefix ends on a special token or pre-token boundary. The last two
+        characters are held back because the pre-token pattern looks up to two
+        characters ahead (the contractions 'll, 've and 're), and the last
+        (longest special token - 1) characters are held back because text that
+        follows could complete a special token starting there or lengthen one
+        ending there. Two cuts are never made in a whitespace run: between a
+        whitespace character and a non-whitespace one, because a prefix ending
+        in whitespace is split differently from whitespace before a
+        non-whitespace character; and between two whitespace characters when
+        the run ends in the held-back tail, because how the run splits depends
+        on the character that ends it, which may yet begin a special token.
         A cut just before a special token is always safe, since encode() treats
         the text between special tokens as a string of its own.
         """
-        limit = len(text) - max(1, self._longest_special - 1)
+        limit = len(text) - max(2, self._longest_special - 1)
         if limit <= 0:
             return 0
         cut = pos = 0
@@ -130,8 +134,15 @@ class NaiveTokenizer:
                 end = pretoken.end()
                 if end > limit:
                     return cut
-                if end == gap_end or not (_WS_RE.match(text, end - 1) and not _WS_RE.match(text, end)):
-                    cut = end
+                if end < gap_end and _WS_RE.match(text, end - 1):
+                    if not _WS_RE.match(text, end):
+                        continue  # whitespace before non-whitespace: never cut here
+                    run_end = end + 1
+                    while run_end < gap_end and _WS_RE.match(text, run_end):
+                        run_end += 1
+                    if run_end >= limit:  # the run's split is not decided yet
+                        return cut
+                cut = end
             if match is None or match.end() > limit:
                 return cut
             cut = pos = match.end()
