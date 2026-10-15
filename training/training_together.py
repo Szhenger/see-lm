@@ -29,7 +29,6 @@ Examples (from the project root):
 
 import argparse
 import json
-import math
 import signal
 import sys
 import time
@@ -43,7 +42,7 @@ from optimization.gradients.gradient_clipping import clip_grad_norm_
 from optimization.learning.cross_entropy import cross_entropy
 from optimization.learning.learning_schedule import cosine_lr
 from optimization.optimizer.adamw_optimizer import AdamW
-from training.common import default_device
+from training.common import default_d_ff, default_device
 from training.loop_utils import get_batch, load_checkpoint, load_tokens, save_checkpoint
 
 HERE = Path(__file__).resolve().parent
@@ -173,7 +172,7 @@ def train(args: argparse.Namespace) -> None:
     torch.manual_seed(args.seed)
     model = TransformerLM(
         args.vocab_size, args.context_length, args.d_model, args.num_layers, args.num_heads,
-        args.d_ff if args.d_ff is not None else 64 * math.ceil(8 * args.d_model / 3 / 64),
+        args.d_ff if args.d_ff is not None else default_d_ff(args.d_model),
         args.rope_theta, device=device,
     )
     optimizer = AdamW(model.parameters(), lr=args.lr, betas=tuple(args.betas), eps=args.eps, weight_decay=args.weight_decay)
