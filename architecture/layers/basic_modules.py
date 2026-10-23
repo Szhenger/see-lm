@@ -15,7 +15,8 @@ from architecture.common import lookup
 
 
 def trunc_normal_init_(weight: torch.Tensor, fan_in: int, fan_out: int) -> None:
-    """Fill `weight` in place as a linear layer with the given fans is initialized.
+    """
+    Fill `weight` in place as a linear layer with the given fans is initialized.
 
     N(0, 2 / (fan_in + fan_out)) truncated at three standard deviations.
     """
@@ -65,7 +66,8 @@ class Linear(nn.Module):
 
 
 class Embedding(nn.Module):
-    """The token embedding: a learned lookup table from token id to a d_model vector.
+    """
+    The token embedding: a learned lookup table from token id to a d_model vector.
 
     weight has shape (num_embeddings, d_model); forward returns row token_id of
     weight for every id, as a (*token_ids.shape, d_model) tensor. Negative ids

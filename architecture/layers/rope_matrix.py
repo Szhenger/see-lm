@@ -69,7 +69,8 @@ class RotaryPositionalEmbedding(nn.Module):
         return self.rotate(x, *self.tables(token_positions, x.dim()))
 
     def tables(self, token_positions: torch.Tensor, ndim: int) -> tuple[torch.Tensor, torch.Tensor]:
-        """The cos and sin rows for token_positions, shaped to broadcast against an ndim-dimensional input.
+        """
+        The cos and sin rows for token_positions, shaped to broadcast against an ndim-dimensional input.
 
         Gathered once and passed to `rotate` for each input that shares the
         positions (the query and key of one attention layer).

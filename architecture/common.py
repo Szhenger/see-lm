@@ -31,7 +31,8 @@ import torch
 
 
 def upcast(x: torch.Tensor, name: str) -> tuple[torch.Tensor, torch.dtype]:
-    """Return (x promoted to at least float32, x's original dtype).
+    """
+    Return (x promoted to at least float32, x's original dtype).
 
     Raises TypeError, naming the caller, if x is not a floating point tensor.
     The caller does its arithmetic on the returned tensor and casts the final
@@ -46,7 +47,8 @@ def upcast(x: torch.Tensor, name: str) -> tuple[torch.Tensor, torch.dtype]:
 def upcast_all(
     xs: Sequence[torch.Tensor], name: str
 ) -> tuple[list[torch.Tensor], torch.dtype]:
-    """Return (xs promoted to one common dtype of at least float32, the common dtype of xs).
+    """
+    Return (xs promoted to one common dtype of at least float32, the common dtype of xs).
 
     The common dtype is torch's promotion over the inputs' dtypes (bf16 with
     bf16 is bf16; float32 with float64 is float64), so no input is ever
@@ -69,7 +71,8 @@ def check_ids(ids: torch.Tensor, name: str) -> None:
 
 
 def lookup(table: torch.Tensor, ids: torch.Tensor, name: str) -> torch.Tensor:
-    """Return the rows of `table` at `ids`, with shape (*ids.shape, *table.shape[1:]).
+    """
+    Return the rows of `table` at `ids`, with shape (*ids.shape, *table.shape[1:]).
 
     Raises TypeError, naming the caller, unless ids is int32 or int64: those
     are the only dtypes index_select accepts, and checking here gives the

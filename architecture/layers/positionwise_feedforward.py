@@ -27,7 +27,8 @@ def silu(x: torch.Tensor) -> torch.Tensor:
 
 
 class SiLU(nn.Module):
-    """The SiLU activation x * sigmoid(x), as used inside the SwiGLU feed-forward
+    """
+    The SiLU activation x * sigmoid(x), as used inside the SwiGLU feed-forward
     network. Elementwise and stateless, so it works on any shape. A module of its
     own so that it can be swapped, counted or inspected independently of the
     block that uses it.
