@@ -10,14 +10,17 @@ of random windows, forward, cross-entropy, backward, gradient clipping, AdamW.
 
 A run owns one folder, training/runs/NAME (change with --out-dir), holding
     config.json      the arguments the run was started with
-    log.jsonl        one JSON line per logged step and per evaluation
+    log.jsonl        one JSON line per logged step and per evaluation, each stamped with the wall-clock time
     checkpoint.pt    the latest model, optimizer and iteration, written atomically
 
 Training loss, learning rate, gradient norm and throughput are logged every
 --log-interval steps; the validation loss, the mean over --eval-batches random
 batches, every --eval-interval steps and at the end. The checkpoint is written
 every --checkpoint-interval steps, at the end, and on Ctrl-C. --resume reloads
-it and continues from its iteration under the same arguments.
+it and continues from its iteration under the same arguments, with the log's
+wall-clock continuing from where it stopped. --wandb PROJECT mirrors the log to
+Weights & Biases, rewinding its run to the checkpoint's step on a resume.
+experimentation/experiment_logger.py reads the logs back as curves and tables.
 
 Examples (from the project root):
     uv run python training/training_together.py --train data/tokens/tinystories_train.npy --valid data/tokens/tinystories_valid.npy
@@ -38,6 +41,7 @@ import numpy as np
 import torch
 
 from architecture.transformer.see_lm import TransformerLM
+from experimentation.experiment_logger import ExperimentLogger
 from optimization.gradients.gradient_clipping import clip_grad_norm_
 from optimization.learning.cross_entropy import cross_entropy
 from optimization.learning.learning_schedule import cosine_lr
@@ -88,6 +92,7 @@ def parse_args() -> argparse.Namespace:
     run.add_argument("--eval-interval", type=int, default=250)
     run.add_argument("--eval-batches", type=int, default=20)
     run.add_argument("--checkpoint-interval", type=int, default=500)
+    run.add_argument("--wandb", default=None, metavar="PROJECT", help="mirror the log to this Weights & Biases project; a resume rewinds the W&B run to the checkpoint's step")
 
     args = parser.parse_args()
     if args.cosine_iters is None:
@@ -124,21 +129,6 @@ def sidecar_vocab_size(tokens: Path) -> int | None:
         return int(sidecar(tokens)["vocab_size"])
     except (KeyError, TypeError, ValueError):
         return None
-
-
-class Logger:
-    """Prints a line and appends it as JSON to the run's log."""
-
-    def __init__(self, path: Path) -> None:
-        self.path = path
-
-    def log(self, **record) -> None:
-        print("  ".join(f"{k} {v:.4g}" if isinstance(v, float) else f"{k} {v}" for k, v in record.items()), flush=True)
-        self.write(**record)
-
-    def write(self, **record) -> None:
-        with open(self.path, "a", encoding="utf-8") as f:
-            f.write(json.dumps(record) + "\n")
 
 
 @torch.no_grad()
@@ -182,15 +172,11 @@ def train(args: argparse.Namespace) -> None:
     # reseeded by its iteration so it does not replay the batches it already saw.
     generator = torch.Generator().manual_seed(args.seed + start)
 
-    # The run folder is created only once everything above has succeeded, so a
-    # failed start does not leave a folder that refuses the next attempt.
-    run_dir.mkdir(parents=True, exist_ok=True)
+    # The logger creates the run folder, so a failed start above does not leave
+    # a folder that refuses the next attempt. A fresh run writes config.json; a
+    # resumed one logs the arguments it ran with and continues the wall-clock.
     config = {k: str(v) if isinstance(v, Path) else v for k, v in vars(args).items()}
-    logger = Logger(run_dir / "log.jsonl")
-    if not args.resume:  # the config records how the run was started
-        (run_dir / "config.json").write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
-    else:  # a resumed run may change arguments; the log records what it ran with
-        logger.write(event="resume", iteration=start, **config)
+    logger = ExperimentLogger(run_dir, config, resume=args.resume, step=start, wandb_project=args.wandb)
     parameters = sum(p.numel() for p in model.parameters())
     print(f"{parameters:,} parameters on {device}, {len(train_data):,} training tokens, run folder {run_dir}", flush=True)
     if start:
@@ -235,7 +221,7 @@ def train(args: argparse.Namespace) -> None:
             if step % args.log_interval == 0 or step == args.iterations:
                 now = time.perf_counter()
                 logger.log(
-                    iteration=step,
+                    step,
                     loss=running_loss.item() / since_log,
                     lr=lr,
                     grad_norm=running_norm.item() / since_log,
@@ -247,7 +233,7 @@ def train(args: argparse.Namespace) -> None:
                 last_log = now
             if valid_data is not None and (step % args.eval_interval == 0 or step == args.iterations):
                 eval_start = time.perf_counter()
-                logger.log(iteration=step, valid_loss=evaluate(model, valid_data, args, device))
+                logger.log(step, valid_loss=evaluate(model, valid_data, args, device))
                 last_log += time.perf_counter() - eval_start  # evaluation time does not count toward throughput
             if step % args.checkpoint_interval == 0 or step == args.iterations:
                 save_checkpoint(model, optimizer, step, checkpoint)
@@ -257,6 +243,7 @@ def train(args: argparse.Namespace) -> None:
                 sys.exit(130)
     finally:
         signal.signal(signal.SIGINT, previous_handler)
+        logger.finish(exit_code=1 if sys.exc_info()[0] is not None else None)  # a crash or interrupt marks the W&B run failed
     print(f"done: {args.iterations} iterations, checkpoint at {checkpoint}", flush=True)
 
 
