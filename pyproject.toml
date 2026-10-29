@@ -24,7 +24,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["architecture", "experimentation", "optimization", "tokenization", "training"]
+packages = ["architecture", "optimization", "tokenization", "training"]
 
 [tool.pytest.ini_options]
 xfail_strict = true

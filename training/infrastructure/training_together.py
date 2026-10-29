@@ -20,14 +20,20 @@ every --checkpoint-interval steps, at the end, and on Ctrl-C. --resume reloads
 it and continues from its iteration under the same arguments, with the log's
 wall-clock continuing from where it stopped. --wandb PROJECT mirrors the log to
 Weights & Biases, rewinding its run to the checkpoint's step on a resume.
-experimentation/experiment_logger.py reads the logs back as curves and tables.
+--bf16 runs the forward and backward under bfloat16 autocast; --compile
+JIT-compiles the model with torch.compile (the aot_eager backend on mps). On
+cuda the matmuls use TF32; mps has no such kernels.
+training/experiments/experiment_logger.py reads the logs back as curves and tables.
+
+`parse_args(defaults=...)` fixes the settings of one experiment while keeping
+every flag: training/experiments/tiny_stories.py is the TinyStories run built that way.
 
 Examples (from the project root):
-    uv run python training/training_together.py --train data/tokens/tinystories_train.npy --valid data/tokens/tinystories_valid.npy
-    uv run python training/training_together.py --train data/tokens/tinystories_train.npy --valid data/tokens/tinystories_valid.npy --name ts-lr3e-3 --lr 3e-3
-    uv run python training/training_together.py --train data/tokens/owt_train.npy --valid data/tokens/owt_valid.npy --d-model 768 --num-layers 12 --num-heads 12 --iterations 20000
-    uv run python training/training_together.py --train data/tokens/tinystories_train.npy --name ts-lr3e-3 --resume
-    uv run python training/training_together.py --train data/tokens/tinystories_valid.npy --iterations 50 --warmup-iters 5 --batch-size 4 --d-model 64 --num-layers 1 --num-heads 2 --device cpu
+    uv run python training/infrastructure/training_together.py --train data/tokens/tinystories_train.npy --valid data/tokens/tinystories_valid.npy
+    uv run python training/infrastructure/training_together.py --train data/tokens/tinystories_train.npy --valid data/tokens/tinystories_valid.npy --name ts-lr3e-3 --lr 3e-3
+    uv run python training/infrastructure/training_together.py --train data/tokens/owt_train.npy --valid data/tokens/owt_valid.npy --d-model 768 --num-layers 12 --num-heads 12 --iterations 20000
+    uv run python training/infrastructure/training_together.py --train data/tokens/tinystories_train.npy --name ts-lr3e-3 --resume
+    uv run python training/infrastructure/training_together.py --train data/tokens/tinystories_valid.npy --iterations 50 --warmup-iters 5 --batch-size 4 --d-model 64 --num-layers 1 --num-heads 2 --device cpu
 """
 
 import argparse
@@ -41,23 +47,27 @@ import numpy as np
 import torch
 
 from architecture.transformer.see_lm import TransformerLM
-from experimentation.experiment_logger import ExperimentLogger
 from optimization.gradients.gradient_clipping import clip_grad_norm_
 from optimization.learning.cross_entropy import cross_entropy
 from optimization.learning.learning_schedule import cosine_lr
 from optimization.optimizer.adamw_optimizer import AdamW
-from training.common import default_d_ff, default_device
-from training.loop_utils import get_batch, load_checkpoint, load_tokens, save_checkpoint
+from training.common import RUNS_DIR, default_d_ff, default_device
+from training.experiments.experiment_logger import ExperimentLogger
+from training.infrastructure.loop_utils import (
+    get_batch,
+    load_checkpoint,
+    load_tokens,
+    save_checkpoint,
+)
 
-HERE = Path(__file__).resolve().parent
-RUNS_DIR = HERE / "runs"
 
-
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+def parse_args(argv: list[str] | None = None, defaults: dict | None = None, description: str | None = None) -> argparse.Namespace:
+    """The arguments of a run, from argv (default: the command line) over defaults (keyed by argument name, such as "d_ff"); description heads --help."""
+    defaults = defaults or {}
+    parser = argparse.ArgumentParser(description=description or __doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
 
     data = parser.add_argument_group("data")
-    data.add_argument("--train", type=Path, required=True, help="training token array (.npy)")
+    data.add_argument("--train", type=Path, required="train" not in defaults, help="training token array (.npy)")
     data.add_argument("--valid", type=Path, default=None, help="validation token array (.npy); without it there is no evaluation")
     data.add_argument("--vocab-size", type=int, default=None, help="vocabulary size (default: read from the sidecar .json next to --train)")
 
@@ -86,7 +96,8 @@ def parse_args() -> argparse.Namespace:
     run.add_argument("--out-dir", type=Path, default=RUNS_DIR, help=f"folder holding the runs (default: {RUNS_DIR})")
     run.add_argument("--resume", action="store_true", help="continue from the run's checkpoint")
     run.add_argument("--device", default=None, help="cuda, mps or cpu (default: the machine's accelerator)")
-    run.add_argument("--bf16", action="store_true", help="run the forward and backward under bfloat16 autocast")
+    run.add_argument("--bf16", action=argparse.BooleanOptionalAction, default=False, help="run the forward and backward under bfloat16 autocast")
+    run.add_argument("--compile", action=argparse.BooleanOptionalAction, default=False, help="JIT-compile the model with torch.compile (aot_eager backend on mps)")
     run.add_argument("--seed", type=int, default=0)
     run.add_argument("--log-interval", type=int, default=10)
     run.add_argument("--eval-interval", type=int, default=250)
@@ -94,7 +105,10 @@ def parse_args() -> argparse.Namespace:
     run.add_argument("--checkpoint-interval", type=int, default=500)
     run.add_argument("--wandb", default=None, metavar="PROJECT", help="mirror the log to this Weights & Biases project; a resume rewinds the W&B run to the checkpoint's step")
 
-    args = parser.parse_args()
+    if unknown := set(defaults) - {action.dest for action in parser._actions}:
+        raise ValueError(f"defaults name no argument: {', '.join(sorted(unknown))}")
+    parser.set_defaults(**defaults)
+    args = parser.parse_args(argv)
     if args.cosine_iters is None:
         args.cosine_iters = args.iterations
     if args.name is None:
@@ -132,7 +146,7 @@ def sidecar_vocab_size(tokens: Path) -> int | None:
 
 
 @torch.no_grad()
-def evaluate(model: TransformerLM, data: np.ndarray, args: argparse.Namespace, device: torch.device) -> float:
+def evaluate(model: torch.nn.Module, data: np.ndarray, args: argparse.Namespace, device: torch.device) -> float:
     """Mean cross-entropy over --eval-batches random batches of data, the same batches at every evaluation."""
     generator = torch.Generator().manual_seed(args.seed + 1)
     model.eval()
@@ -167,6 +181,8 @@ def train(args: argparse.Namespace) -> None:
     )
     optimizer = AdamW(model.parameters(), lr=args.lr, betas=tuple(args.betas), eps=args.eps, weight_decay=args.weight_decay)
     start = load_checkpoint(checkpoint, model, optimizer) if args.resume else 0
+    if device.type == "cuda":
+        torch.set_float32_matmul_precision("high")  # TF32 matmuls
 
     # Batches come from the CPU generator whatever the device; a resumed run is
     # reseeded by its iteration so it does not replay the batches it already saw.
@@ -186,7 +202,6 @@ def train(args: argparse.Namespace) -> None:
     running_loss = torch.zeros((), device=device)
     running_norm = torch.zeros((), device=device)
     since_log = 0
-    last_log = time.perf_counter()
     completed = start  # steps whose optimizer update has been applied
 
     # Ctrl-C is deferred to the end of the step in progress, so the checkpoint
@@ -200,6 +215,18 @@ def train(args: argparse.Namespace) -> None:
 
     previous_handler = signal.signal(signal.SIGINT, on_interrupt)
     try:
+        # The compiled module shares the parameters; checkpoints and the optimizer stay on the plain one.
+        # Compilation happens here, on the run's clock, on a throwaway batch: the first log window then measures steps.
+        forward = model
+        if args.compile:
+            print("compiling the model", flush=True)
+            forward = torch.compile(model, backend="aot_eager" if device.type == "mps" else "inductor")
+            x, y = get_batch(train_data, args.batch_size, args.context_length, device, torch.Generator().manual_seed(args.seed))
+            with torch.autocast(device.type, dtype=torch.bfloat16, enabled=args.bf16):
+                loss = cross_entropy(forward(x), y)
+            loss.backward()
+            optimizer.zero_grad(set_to_none=True)
+        last_log = time.perf_counter()
         for iteration in range(start, args.iterations):
             lr = cosine_lr(iteration, args.lr, args.min_lr, args.warmup_iters, args.cosine_iters)
             for group in optimizer.param_groups:
@@ -207,7 +234,7 @@ def train(args: argparse.Namespace) -> None:
 
             x, y = get_batch(train_data, args.batch_size, args.context_length, device, generator)
             with torch.autocast(device.type, dtype=torch.bfloat16, enabled=args.bf16):
-                loss = cross_entropy(model(x), y)
+                loss = cross_entropy(forward(x), y)
             optimizer.zero_grad(set_to_none=True)
             loss.backward()
             if args.max_grad_norm:
@@ -233,7 +260,7 @@ def train(args: argparse.Namespace) -> None:
                 last_log = now
             if valid_data is not None and (step % args.eval_interval == 0 or step == args.iterations):
                 eval_start = time.perf_counter()
-                logger.log(step, valid_loss=evaluate(model, valid_data, args, device))
+                logger.log(step, valid_loss=evaluate(forward, valid_data, args, device))
                 last_log += time.perf_counter() - eval_start  # evaluation time does not count toward throughput
             if step % args.checkpoint_interval == 0 or step == args.iterations:
                 save_checkpoint(model, optimizer, step, checkpoint)

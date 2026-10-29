@@ -15,9 +15,9 @@ and the tokenizer the run's corpus was encoded with, read from the sidecar .json
 next to that corpus.
 
 Examples (from the project root):
-    uv run python training/softmax_decoder.py --run ts-lr3e-3 --prompt "Once upon a time"
-    uv run python training/softmax_decoder.py --run ts-lr3e-3 --prompt "Once upon a time" --temperature 0.8 --top-p 0.9 --max-new-tokens 200
-    uv run python training/softmax_decoder.py --run ts-lr3e-3 --prompt "The cat" --temperature 0 --seed 1
+    uv run python training/infrastructure/softmax_decoder.py --run ts-lr3e-3 --prompt "Once upon a time"
+    uv run python training/infrastructure/softmax_decoder.py --run ts-lr3e-3 --prompt "Once upon a time" --temperature 0.8 --top-p 0.9 --max-new-tokens 200
+    uv run python training/infrastructure/softmax_decoder.py --run ts-lr3e-3 --prompt "The cat" --temperature 0 --seed 1
 """
 
 import argparse
@@ -31,10 +31,7 @@ from architecture.layers.softmax_function import softmax
 from architecture.transformer.see_lm import TransformerLM
 from tokenization.common import END_OF_TEXT
 from tokenization.tokenizer.optimal_tokenizer import OptimalTokenizer
-from training.common import default_d_ff, default_device
-
-HERE = Path(__file__).resolve().parent
-RUNS_DIR = HERE / "runs"
+from training.common import RUNS_DIR, default_d_ff, default_device
 
 
 def sample_next(

@@ -10,7 +10,10 @@ from jaxtyping import Bool, Float, Int
 from torch import Tensor
 
 from architecture.layers.basic_modules import Embedding, Linear
-from architecture.layers.multihead_attention import MultiHeadSelfAttention, scaled_dot_product_attention
+from architecture.layers.multihead_attention import (
+    MultiHeadSelfAttention,
+    scaled_dot_product_attention,
+)
 from architecture.layers.positionwise_feedforward import SiLU, SwiGLU
 from architecture.layers.rms_norm import RMSNorm
 from architecture.layers.rope_matrix import RotaryPositionalEmbedding
@@ -23,7 +26,11 @@ from optimization.learning.learning_schedule import cosine_lr
 from optimization.optimizer.adamw_optimizer import AdamW
 from tokenization.tokenizer.optimal_tokenizer import OptimalTokenizer
 from tokenization.trainer.optimal_bpe import train_bpe
-from training.loop_utils import get_batch, load_checkpoint, save_checkpoint
+from training.infrastructure.loop_utils import (
+    get_batch,
+    load_checkpoint,
+    save_checkpoint,
+)
 
 
 def run_linear(

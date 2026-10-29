@@ -3,7 +3,17 @@ import json
 import numpy as np
 import pytest
 
-from experimentation.experiment_logger import ExperimentLogger, Run, changes, curve, load_run, load_runs, plot, read_log, summarize
+from training.experiments.experiment_logger import (
+    ExperimentLogger,
+    Run,
+    changes,
+    curve,
+    load_run,
+    load_runs,
+    plot,
+    read_log,
+    summarize,
+)
 
 
 def records_of(run_dir):
@@ -151,7 +161,12 @@ def test_plot_writes_a_figure(tmp_path):
 
 
 def test_best_follows_the_metric_direction():
-    from experimentation.experiment_logger import best, lower_is_better, worse, worst
+    from training.experiments.experiment_logger import (
+        best,
+        lower_is_better,
+        worse,
+        worst,
+    )
 
     assert lower_is_better("loss") and lower_is_better("valid_loss") and lower_is_better("grad_norm")
     assert not lower_is_better("tokens_per_s") and not lower_is_better("accuracy")

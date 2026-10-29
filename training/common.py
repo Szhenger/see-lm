@@ -1,6 +1,6 @@
 """
 What the training scripts share: the device the model and its batches live on,
-and the default feed-forward width.
+the default feed-forward width, and the folder holding the runs.
 
 The model and the batches fed to it must be on one device. `default_device`
 picks the accelerator this machine has, CUDA first, then MPS (Apple silicon),
@@ -9,12 +9,15 @@ to get_batch runs on the same device everywhere without naming it.
 """
 
 import math
+from pathlib import Path
 
-import torch
+RUNS_DIR = Path(__file__).resolve().parent / "runs"  # one folder per run: config.json, log.jsonl, checkpoint.pt
 
 
-def default_device() -> torch.device:
+def default_device() -> "torch.device":
     """The accelerator this machine has: CUDA if available, else MPS, else the CPU."""
+    import torch  # here, not at the top: the log readers import this module for RUNS_DIR alone
+
     if torch.cuda.is_available():
         return torch.device("cuda")
     if torch.backends.mps.is_available():

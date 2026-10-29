@@ -26,10 +26,10 @@ table of a folder's runs with their settings against a baseline, and learning
 curves of several runs on one figure.
 
 Examples (from the project root):
-    uv run python experimentation/experiment_logger.py summary
-    uv run python experimentation/experiment_logger.py summary --baseline ts-base --out experimentation/experiment_log.md
-    uv run python experimentation/experiment_logger.py plot --metric valid_loss --out curves.png
-    uv run python experimentation/experiment_logger.py plot ts-base ts-lr3e-3 --metric loss --x wall_time --out curves.png
+    uv run python training/experiments/experiment_logger.py summary
+    uv run python training/experiments/experiment_logger.py summary --baseline ts-base --out training/experiments/experiment_log.md
+    uv run python training/experiments/experiment_logger.py plot --metric valid_loss --out curves.png
+    uv run python training/experiments/experiment_logger.py plot ts-base ts-lr3e-3 --metric loss --x wall_time --out curves.png
 """
 
 import argparse
@@ -42,8 +42,8 @@ from pathlib import Path
 
 import numpy as np
 
-HERE = Path(__file__).resolve().parent
-RUNS_DIR = HERE.parent / "training" / "runs"
+from training.common import RUNS_DIR
+
 CONFIG_FILE = "config.json"
 LOG_FILE = "log.jsonl"
 
@@ -276,7 +276,8 @@ def plot(runs: list[Run], metric: str = "valid_loss", x: str = "step", out: str 
         import matplotlib.pyplot as plt
     except ImportError:
         raise ImportError("plotting needs the matplotlib package: uv add --dev matplotlib") from None
-    if ax is None:
+    owns_figure = ax is None
+    if owns_figure:
         _, ax = plt.subplots(figsize=(8, 5))
     for run in runs:
         steps, times, values = run.curve(metric)
@@ -289,7 +290,7 @@ def plot(runs: list[Run], metric: str = "valid_loss", x: str = "step", out: str 
         ax.legend()
     if out is not None:
         ax.figure.savefig(out, dpi=150, bbox_inches="tight")
-    elif plt.get_backend().lower() != "agg":  # a headless process has no window to show
+    elif owns_figure and plt.get_backend().lower() != "agg":  # a caller's figure is theirs to show; a headless process has no window
         plt.show()
     return ax
 
